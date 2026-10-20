@@ -7,6 +7,9 @@ on:
         default: "alle"
 jobs:
   screens:
+    strategy:
+      matrix:
+        teil: [tv, ios]
     runs-on: macos-15
     timeout-minutes: 35
     steps:
@@ -16,15 +19,17 @@ jobs:
           xcode-version: latest-stable
       - run: brew install xcodegen && xcodegen generate
       - name: Apple TV (Simulator) bauen
-        if: inputs.only != 'ios'
+        if: matrix.teil == 'tv' && inputs.only != 'ios'
         run: xcodebuild -project FilmFrei24.xcodeproj -scheme FilmFrei24TV -sdk appletvsimulator -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD" ; test ${PIPESTATUS[0]} -eq 0
       - name: iPhone/iPad (Simulator) bauen
-        if: inputs.only != 'tv'
+        if: matrix.teil == 'ios' && inputs.only != 'tv'
         run: xcodebuild -project FilmFrei24.xcodeproj -scheme FilmFrei24 -sdk iphonesimulator -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD" ; test ${PIPESTATUS[0]} -eq 0
       - name: Fotos
+        if: inputs.only == 'alle' || inputs.only == matrix.teil
         run: tools/screens.sh
+        env: { ONLY: "${{ matrix.teil }}" }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: screens
+          name: screens-${{ matrix.teil }}
           path: shots/

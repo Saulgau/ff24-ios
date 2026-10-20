@@ -34,10 +34,10 @@ shoot() { # name devtype runtime app bundle screens...
   done
   xcrun simctl shutdown "$dev"; xcrun simctl delete "$dev"
 }
-TV=build/Build/Products/Release-appletvsimulator/FilmFrei24TV.app
-IOS=build/Build/Products/Release-iphonesimulator/FilmFrei24.app
+TV=build/Build/Products/Release-appletvsimulator/FilmFrei24TV.app; [ "${ONLY:-alle}" = ios ] && TV=/nix
+IOS=build/Build/Products/Release-iphonesimulator/FilmFrei24.app; [ "${ONLY:-alle}" = tv ] && IOS=/nix
 RTV=$(pick_rt tvOS); RIOS=$(pick_rt iOS)
-if [ -d "$TV" ]; then open -a Simulator 2>/dev/null; sleep 3
+if [ -d "$TV" ]; then
   shoot appletv "$(pick_dt 'Apple TV 4K (3rd' 'Apple TV 4K')" "$RTV" "$TV" com.filmfrei24.tv home home+focus detail-film detail-serie filme login; fi
 if [ -d "$IOS" ]; then
   shoot iphone-se "$(pick_dt 'iPhone SE (3rd' 'iPhone SE')" "$RIOS" "$IOS" com.filmfrei24.app home detail-film detail-serie login
