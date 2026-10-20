@@ -111,7 +111,9 @@ struct Img: View {
         let u = (useFallback || url.isEmpty) ? fallback : url
         AsyncImage(url: URL(string: u), transaction: Transaction(animation: .easeOut(duration: 0.3))) { phase in
             switch phase {
-            case .success(let img): img.resizable().aspectRatio(contentMode: mode).transition(.opacity)
+            case .success(let img):
+                // nimmt nur den vorgegebenen Platz ein; bei .fill wird der Ueberstand abgeschnitten (2026-10-20)
+                Color.clear.overlay(img.resizable().aspectRatio(contentMode: mode)).clipped().transition(.opacity)
             case .failure: Color.clear.onAppear { if !useFallback && !fallback.isEmpty { useFallback = true } }
             default: Color.clear
             }

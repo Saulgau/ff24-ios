@@ -7,10 +7,11 @@ options:
     iOS: "16.0"
     tvOS: "17.0"
   createIntermediateGroups: true
+  developmentLanguage: de
 settings:
   base:
-    MARKETING_VERSION: "2.1.0"
-    CURRENT_PROJECT_VERSION: "3"
+    MARKETING_VERSION: "2.2.0"
+    CURRENT_PROJECT_VERSION: "4"
     SWIFT_VERSION: "5.9"
     DEVELOPMENT_TEAM: ""          # eigenes Apple-Team eintragen
     CODE_SIGN_STYLE: Automatic
@@ -24,12 +25,15 @@ targets:
       - path: Resources/Fonts
         buildPhase: resources
       - path: Resources/iOS.xcassets
+      - path: Resources/de.lproj
     info:
       path: Resources/Info-iOS.plist
       properties:
         CFBundleDisplayName: FilmFrei24
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDevelopmentRegion: de
+        CFBundleLocalizations: [de]
         UILaunchScreen:
           UIColorName: LaunchBg
         UIAppFonts: [Inter-Regular.ttf, Inter-Medium.ttf, Inter-SemiBold.ttf, Inter-Bold.ttf, Inter-ExtraBold.ttf, Inter-Black.ttf]
@@ -58,12 +62,15 @@ targets:
       - path: Resources/Fonts
         buildPhase: resources
       - path: Resources/tvOS.xcassets
+      - path: Resources/de.lproj
     info:
       path: Resources/Info-tvOS.plist
       properties:
         CFBundleDisplayName: FilmFrei24
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDevelopmentRegion: de
+        CFBundleLocalizations: [de]
         UIAppFonts: [Inter-Regular.ttf, Inter-Medium.ttf, Inter-SemiBold.ttf, Inter-Bold.ttf, Inter-ExtraBold.ttf, Inter-Black.ttf]
         UIUserInterfaceStyle: Dark
         ITSAppUsesNonExemptEncryption: false

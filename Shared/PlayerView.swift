@@ -32,15 +32,8 @@ struct PlayerView: View {
                 }
             }.padding(.trailing, 28).padding(.bottom, 110 * FF.scale) }
 
-            #if os(iOS)
-            VStack { HStack {
-                Button { close() } label: { Image(systemName: "xmark").font(.system(size: 18, weight: .bold)).foregroundColor(.white).frame(width: 44, height: 44).background(Circle().fill(Color.black.opacity(0.45))) }
-                Spacer()
-                if m.info != nil && req.trailer == nil {
-                    Button { m.player?.pause(); report = true } label: { Image(systemName: "flag").font(.system(size: 17, weight: .semibold)).foregroundColor(.white).frame(width: 44, height: 44).background(Circle().fill(Color.black.opacity(0.45))) }
-                }
-            }.padding(.horizontal, 12).padding(.top, 6); Spacer() }
-            #endif
+            // 2026-10-20 (User): kein eigenes X / Melden im Player -- der Apple-Player hat sein eigenes X,
+            // Melden gibt es auf der Detailseite (und im Fehlerfall unten)
 
             if let e = m.error {
                 VStack(spacing: 16) {
@@ -56,7 +49,7 @@ struct PlayerView: View {
         #if os(iOS)
         .statusBarHidden()
         #endif
-        .task { await m.start(req) }
+        .task { m.onClose = { close() }; await m.start(req) }
         .onDisappear { m.stop() }
         .sheet(isPresented: $report) {
             ReportSheet(title: (m.info?.title ?? "") + ((m.info?.sub).map { " – \($0)" } ?? ""), url: reportURL, pos: m.player?.currentTime().seconds ?? 0)
@@ -92,6 +85,15 @@ final class PlayerModel: NSObject, ObservableObject, AVPlayerViewControllerDeleg
     private var skipTo = 0.0
     @Published var showNext = false
     @Published var countdown = 0
+    var onClose: (() -> Void)?
+
+    #if os(iOS)
+    // System-X des Apple-Players beendet die Vollbild-Darstellung -> ganzen Player schliessen
+    nonisolated func playerViewController(_ playerViewController: AVPlayerViewController,
+                                          willEndFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator) {
+        coordinator.animate(alongsideTransition: nil) { _ in Task { @MainActor in self.onClose?() } }
+    }
+    #endif
 
     private var cues: [(Double, Double, String)] = []
     private var obs: Any?
@@ -277,6 +279,7 @@ struct AVPlayerControllerView: UIViewControllerRepresentable {
         vc.allowsPictureInPicturePlayback = true
         vc.canStartPictureInPictureAutomaticallyFromInline = true
         vc.updatesNowPlayingInfoCenter = true
+        vc.entersFullScreenWhenPlaybackBegins = false
         #endif
         return vc
     }
