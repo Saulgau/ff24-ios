@@ -113,7 +113,36 @@ struct FF24App: App {
             .environmentObject(router)
             .preferredColorScheme(.dark)
             .onChange(of: phase) { p in if p == .active { Task { await store.refreshMe() } } }
+            .modifier(UpdateCheck())
         }
+    }
+}
+
+/// 2026-10-20: bei jedem Start prüfen, ob auf tv.filmfrei24.com eine neuere Version liegt
+/// (app-version.json) -> "Weiter nutzen" oder "Update" (lädt direkt die neue IPA).
+struct UpdateCheck: ViewModifier {
+    @State private var newer: (name: String, url: String)?
+    @State private var show = false
+    func body(content: Content) -> some View {
+        content
+            .task {
+                guard let u = URL(string: "https://tv.filmfrei24.com/app-version.json"),
+                      let (d, _) = try? await URLSession.shared.data(from: u),
+                      let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                      let k = o["ios"] as? [String: Any],
+                      let build = (k["build"] as? NSNumber)?.intValue else { return }
+                let mine = Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0") ?? 0
+                if build > mine {
+                    newer = ((k["name"] as? String) ?? "", (k["url"] as? String) ?? "https://tv.filmfrei24.com/ipa")
+                    show = true
+                }
+            }
+            .alert("Neue Version verfügbar", isPresented: $show) {
+                Button("Weiter nutzen", role: .cancel) {}
+                Button("Update") { if let n = newer, let u = URL(string: n.url) { UIApplication.shared.open(u) } }
+            } message: {
+                Text("FilmFrei24 \(newer?.name ?? "") ist da. Lade die neue Version herunter und installiere sie wie gewohnt mit Sideloadly.")
+            }
     }
 }
 
