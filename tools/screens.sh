@@ -19,15 +19,15 @@ shoot() { # name devtype runtime app bundle screens...
   for sc in "$@"; do
     local base=${sc%%+*} args=(-ff24screen "${sc%%+*}")
     [[ $sc == *+focus ]] && args+=(-ff24focus)
-    xcrun simctl launch "$dev" "$bid" "${args[@]}" >/dev/null
+    perl -e 'alarm 60; exec @ARGV' xcrun simctl launch "$dev" "$bid" "${args[@]}" >/dev/null
     sleep 20
     xcrun simctl io "$dev" screenshot "shots/$name-$sc.png" >/dev/null 2>&1
     if [[ $sc == *+focus ]]; then
       # Fernbedienung nachahmen: Simulator nach vorn, Pfeil runter (Fokus auf erste Reihe), dann rechts
-      osascript -e 'tell application "Simulator" to activate' -e 'delay 1' -e 'tell application "System Events" to key code 125' >/dev/null 2>&1 || echo "Tastendruck nicht moeglich"
+      perl -e 'alarm 10; exec @ARGV' osascript -e 'tell application "Simulator" to activate' -e 'delay 1' -e 'tell application "System Events" to key code 125' >/dev/null 2>&1 || echo "Tastendruck nicht moeglich"
       sleep 0.25; xcrun simctl io "$dev" screenshot "shots/$name-$sc-zoom.png" >/dev/null 2>&1
       sleep 2; xcrun simctl io "$dev" screenshot "shots/$name-$sc-fokus.png" >/dev/null 2>&1
-      osascript -e 'tell application "System Events" to key code 124' >/dev/null 2>&1
+      perl -e 'alarm 10; exec @ARGV' osascript -e 'tell application "System Events" to key code 124' >/dev/null 2>&1
       sleep 12; xcrun simctl io "$dev" screenshot "shots/$name-$sc-trailer.png" >/dev/null 2>&1
     fi
     xcrun simctl terminate "$dev" "$bid" 2>/dev/null
