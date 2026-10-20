@@ -53,7 +53,9 @@ struct PlayerView: View {
                 }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.black.opacity(0.9))
             }
         }
+        #if os(iOS)
         .statusBarHidden()
+        #endif
         .task { await m.start(req) }
         .onDisappear { m.stop() }
         .sheet(isPresented: $report) {
