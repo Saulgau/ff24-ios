@@ -274,11 +274,15 @@ struct TicketRow: View {
     let open: () -> Void
     var body: some View {
         let st = tkSt(t.s("status")), n = t.a("messages").count
+        let who: String = t.s("user_name").isEmpty ? "Gast" : t.s("user_name")
+        let msgs: String = " · \(n) Nachricht" + (n == 1 ? "" : "en")
+        let when: String = t.d("updated_at").map { " · " + dfmt($0) } ?? ""
+        let line: String = who + msgs + when
         Button(action: open) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) { Pill(text: st.0, bg: st.1, fg: st.2); Pill(text: tkCat(t.s("category"))) }.padding(.bottom, 2)
                 Text(t.s("title")).font(.inter(16, .bold)).foregroundColor(.white).multilineTextAlignment(.leading)
-                Text((t.s("user_name").isEmpty ? "Gast" : t.s("user_name")) + " · \(n) Nachricht" + (n == 1 ? "" : "en") + (t.d("updated_at").map { " · " + dfmt($0) } ?? ""))
+                Text(line)
                     .font(.inter(13)).foregroundColor(FF.text2)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(16).background(RoundedRectangle(cornerRadius: 10).fill(FF.box))
         }.buttonStyle(FocusStyle()).padding(.bottom, 8)
@@ -290,7 +294,9 @@ struct SupportView: View {
     @EnvironmentObject var router: Router
     @State private var tks: [J]? = nil
     @State private var cat = "general"
-    @State private var name = "", title = "", text = ""
+    @State private var name = ""
+    @State private var title = ""
+    @State private var text = ""
     @State private var priv = false
     @State private var busy = false
     @State private var f = "open"

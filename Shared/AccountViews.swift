@@ -196,7 +196,9 @@ struct SettingsView: View {
     @EnvironmentObject var router: Router
     @Environment(\.dismiss) var dismiss
     @State private var mail: Bool? = nil
-    @State private var pw0 = "", pw1 = "", pw2 = ""
+    @State private var pw0 = ""
+    @State private var pw1 = ""
+    @State private var pw2 = ""
     @State private var confirm: (String, String)? = nil
     #if os(iOS)
     @State private var photo: PhotosPickerItem?
@@ -292,10 +294,14 @@ struct SettingsView: View {
 
 struct LoginView: View {
     @State var register: Bool
+    init(register: Bool) { _register = State(initialValue: register) }
     @EnvironmentObject var store: Store
     @EnvironmentObject var router: Router
     @Environment(\.dismiss) var dismiss
-    @State private var name = "", email = "", pass = "", pass2 = ""
+    @State private var name = ""
+    @State private var email = ""
+    @State private var pass = ""
+    @State private var pass2 = ""
     @State private var busy = false
     @State private var err: String?
 
@@ -356,7 +362,10 @@ struct LoginView: View {
 struct ForgotView: View {
     @EnvironmentObject var router: Router
     @Environment(\.dismiss) var dismiss
-    @State private var email = "", code = "", p1 = "", p2 = ""
+    @State private var email = ""
+    @State private var code = ""
+    @State private var p1 = ""
+    @State private var p2 = ""
     @State private var stage = 0
     @State private var busy = false
     @State private var msg: (Bool, String)? = nil
