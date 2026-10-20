@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(tvOS)
+import CoreImage.CIFilterBuiltins
+#endif
 #if os(iOS)
 import PhotosUI
 #endif
@@ -310,6 +313,12 @@ struct LoginView: View {
             VStack(spacing: 0) {
                 HStack { BackButton(); Spacer() }.padding(.vertical, 16)
                 HStack(spacing: 10) { BrandMark(size: 36 * FF.scale); Text("FilmFrei24").font(.inter(26, .heavy)).foregroundColor(.white) }.padding(.bottom, 24)
+                #if os(tvOS)
+                if !register {
+                    TVQRLogin().padding(.bottom, 40)
+                    Text("Oder mit E-Mail und Passwort:").font(.inter(24, .semibold)).foregroundColor(FF.text2).padding(.bottom, 16)
+                }
+                #endif
                 BoxCard {
                     Text(register ? "Konto erstellen" : "Anmelden").font(.inter(24, .bold)).foregroundColor(.white)
                     Text(register ? "Kostenlos – Fortschritt, Merkliste & Wünsche auf allen Geräten." : "Willkommen zurück!").font(.inter(15)).foregroundColor(FF.text2).padding(.top, 4).padding(.bottom, 8)
@@ -333,12 +342,18 @@ struct LoginView: View {
                 Button { register.toggle(); err = nil } label: {
                     (Text(register ? "Schon ein Konto? " : "Neu bei FilmFrei24? ").foregroundColor(.white) + Text(register ? "Anmelden" : "Konto erstellen").foregroundColor(FF.blue).fontWeight(.semibold)).font(.inter(15))
                 }.buttonStyle(FocusStyle()).padding(12)
-            }.padding(.horizontal, FF.pad).frame(maxWidth: 560)
+            }.padding(.horizontal, FF.pad).frame(maxWidth: loginWidth)
         }
         .frame(maxWidth: .infinity)
         .background(FF.bg.ignoresSafeArea())
         .onChange(of: store.user?.id) { id in if id != nil { dismiss() } }
     }
+
+    #if os(tvOS)
+    private var loginWidth: CGFloat { 1300 }
+    #else
+    private var loginWidth: CGFloat { 560 }
+    #endif
 
     func submit() {
         guard !busy else { return }
@@ -512,3 +527,67 @@ func dfmt(_ ts: Double) -> String {
 func md(_ t: String) -> AttributedString {
     (try? AttributedString(markdown: t, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(t)
 }
+
+
+#if os(tvOS)
+
+/// 2026-10-20: Fernseher-Login per QR-Code -- Handy scannt, meldet sich auf filmfrei24.com an und
+/// bestätigt; der Fernseher fragt alle 2 s nach (api/app.php tv_start / tv_poll). Code gilt 10 Min.
+struct TVQRLogin: View {
+    @EnvironmentObject var store: Store
+    @State private var code = ""
+    @State private var url = ""
+    @State private var err: String?
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 56) {
+            Group {
+                if let img = qrImage(url) {
+                    Image(uiImage: img).interpolation(.none).resizable().frame(width: 330, height: 330)
+                } else {
+                    ProgressView().frame(width: 330, height: 330)
+                }
+            }
+            .padding(18).background(RoundedRectangle(cornerRadius: 18).fill(Color.white))
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Mit dem Handy anmelden").font(.inter(40, .bold)).foregroundColor(.white)
+                Text("1.  QR-Code mit der Handy-Kamera scannen\n2.  Auf filmfrei24.com anmelden (falls nötig)\n3.  „Ja, anmelden“ tippen – fertig")
+                    .font(.inter(27)).foregroundColor(FF.text2).lineSpacing(8)
+                if !code.isEmpty {
+                    Text("Code: \(code)").font(.inter(32, .heavy)).foregroundColor(.white).padding(.top, 6)
+                }
+                if let err { Text(err).font(.inter(24)).foregroundColor(Color(hex: 0xFF8A8D)) }
+            }
+            Spacer(minLength: 0)
+        }
+        .task { await loop() }
+    }
+
+    private func loop() async {
+        while !Task.isCancelled && store.user == nil {
+            let s = await API.postObj("/api/app.php?action=tv_start", [:])
+            guard s.b("ok"), !s.s("poll").isEmpty else {
+                err = "Keine Verbindung – neuer Versuch …"
+                try? await Task.sleep(nanoseconds: 5_000_000_000); continue
+            }
+            code = s.s("code"); url = s.s("url"); err = nil
+            let poll = s.s("poll"), until = Date().addingTimeInterval(570)
+            while Date() < until && !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                let r = await API.postObj("/api/app.php?action=tv_poll", ["poll": poll])
+                if r.b("ok") { store.apply(me: r); return }
+                if r["expired"] != nil { break }
+            }
+        }
+    }
+
+    private func qrImage(_ s: String) -> UIImage? {
+        guard !s.isEmpty else { return nil }
+        let f = CIFilter.qrCodeGenerator()
+        f.message = Data(s.utf8); f.correctionLevel = "M"
+        guard let out = f.outputImage?.transformed(by: CGAffineTransform(scaleX: 10, y: 10)),
+              let cg = CIContext().createCGImage(out, from: out.extent) else { return nil }
+        return UIImage(cgImage: cg)
+    }
+}
+#endif

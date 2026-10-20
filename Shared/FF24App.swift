@@ -138,10 +138,18 @@ struct UpdateCheck: ViewModifier {
                 }
             }
             .alert("Neue Version verfügbar", isPresented: $show) {
+                #if os(tvOS)
+                Button("OK", role: .cancel) {}
+                #else
                 Button("Weiter nutzen", role: .cancel) {}
                 Button("Update") { if let n = newer, let u = URL(string: n.url) { UIApplication.shared.open(u) } }
+                #endif
             } message: {
+                #if os(tvOS)
+                Text("FilmFrei24 \(newer?.name ?? "") ist da. Lade die neue Apple-TV-Version auf filmfrei24.com unter „App“ herunter und installiere sie wie beim ersten Mal.")
+                #else
                 Text("FilmFrei24 \(newer?.name ?? "") ist da. Lade die neue Version herunter und installiere sie wie gewohnt mit Sideloadly.")
+                #endif
             }
     }
 }
