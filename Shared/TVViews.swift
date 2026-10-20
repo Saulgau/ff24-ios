@@ -88,7 +88,7 @@ struct TVInfo: View {
                 .shadow(color: .black.opacity(0.6), radius: 12)
             let b = store.web.badge(it)
             if !b.isEmpty && b != "TOP 10" {
-                Text(b.capitalized(with: Locale(identifier: "de_DE"))).font(.tv(26, .semibold)).foregroundColor(FF.green)
+                Text(tvBadgeText(b)).font(.tv(26, .semibold)).foregroundColor(FF.green)
             } else if store.web.isTop(it) {
                 Text("Nr. \(store.web.rank(it) + 1) in Deutschland").font(.tv(26, .semibold)).foregroundColor(FF.green)
             }
@@ -125,6 +125,19 @@ struct TVMeta: View {
                     .padding(.horizontal, 8).padding(.vertical, 2).overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.6), lineWidth: 1.5))
             }
         }.lineLimit(1)
+    }
+}
+
+/// Abzeichen ("NEUE FOLGEN") als normaler Text ("Neue Folgen").
+func tvBadgeText(_ b: String) -> String {
+    switch b.uppercased() {
+    case "NEUE FOLGEN": return "Neue Folgen"
+    case "NEUE FOLGE": return "Neue Folge"
+    case "NEUE STAFFEL": return "Neue Staffel"
+    case "NEUE SERIE": return "Neue Serie"
+    case "NEU HINZUGEFÜGT": return "Neu hinzugefügt"
+    case "NUR SD": return "Nur SD"
+    default: let l = b.lowercased(); return l.prefix(1).uppercased() + l.dropFirst()
     }
 }
 
