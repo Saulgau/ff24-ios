@@ -131,8 +131,8 @@ struct TVMeta: View {
 struct TVFocusStyle: ButtonStyle {
     var radius: CGFloat = 10
     var pulse: CGFloat = 1.1
-    func makeBody(configuration: Configuration) -> some View { Body(configuration: configuration, radius: radius, pulse: pulse) }
-    struct Body: View {
+    func makeBody(configuration: Configuration) -> some View { FocusBody(configuration: configuration, radius: radius, pulse: pulse) }
+    struct FocusBody: View {
         let configuration: Configuration
         let radius: CGFloat
         let pulse: CGFloat
