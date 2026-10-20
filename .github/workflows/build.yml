@@ -1,0 +1,27 @@
+name: IPA bauen (unsigniert)
+on: [workflow_dispatch, push]
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode wählen
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+      - name: Projekt erzeugen
+        run: brew install xcodegen && xcodegen generate
+      - name: iOS bauen
+        run: |
+          xcodebuild -project FilmFrei24.xcodeproj -scheme FilmFrei24 -sdk iphoneos -configuration Release \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+          mkdir -p out/Payload && cp -r build/Build/Products/Release-iphoneos/FilmFrei24.app out/Payload/
+          (cd out && zip -qr FilmFrei24-iOS.ipa Payload && rm -rf Payload)
+      - name: tvOS bauen
+        run: |
+          xcodebuild -project FilmFrei24.xcodeproj -scheme FilmFrei24TV -sdk appletvos -configuration Release \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+          mkdir -p out/Payload && cp -r build/Build/Products/Release-appletvos/FilmFrei24TV.app out/Payload/
+          (cd out && zip -qr FilmFrei24-AppleTV.ipa Payload && rm -rf Payload)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FilmFrei24-IPAs
+          path: out/*.ipa

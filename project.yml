@@ -1,0 +1,76 @@
+# FilmFrei24 für iPhone/iPad (iOS) und Apple TV (tvOS) – ein gemeinsamer SwiftUI-Code.
+# Projekt erzeugen (auf dem Mac):  brew install xcodegen && xcodegen generate  → FilmFrei24.xcodeproj
+name: FilmFrei24
+options:
+  bundleIdPrefix: com.filmfrei24
+  deploymentTarget:
+    iOS: "16.0"
+    tvOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: "2.1.0"
+    CURRENT_PROJECT_VERSION: "3"
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: ""          # eigenes Apple-Team eintragen
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  FilmFrei24:
+    type: application
+    platform: iOS
+    sources:
+      - path: Shared
+      - path: Resources/Fonts
+        buildPhase: resources
+      - path: Resources/iOS.xcassets
+    info:
+      path: Resources/Info-iOS.plist
+      properties:
+        CFBundleDisplayName: FilmFrei24
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: LaunchBg
+        UIAppFonts: [Inter-Regular.ttf, Inter-Medium.ttf, Inter-SemiBold.ttf, Inter-Bold.ttf, Inter-ExtraBold.ttf, Inter-Black.ttf]
+        UIBackgroundModes: [audio]
+        UIRequiresFullScreen: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UIStatusBarStyle: UIStatusBarStyleLightContent
+        UIViewControllerBasedStatusBarAppearance: false
+        UIUserInterfaceStyle: Dark
+        ITSAppUsesNonExemptEncryption: false
+        CFBundleURLTypes:
+          - CFBundleURLName: com.filmfrei24.app.login
+            CFBundleURLSchemes: [filmfrei24]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.filmfrei24.app
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+  FilmFrei24TV:
+    type: application
+    platform: tvOS
+    sources:
+      - path: Shared
+      - path: Resources/Fonts
+        buildPhase: resources
+      - path: Resources/tvOS.xcassets
+    info:
+      path: Resources/Info-tvOS.plist
+      properties:
+        CFBundleDisplayName: FilmFrei24
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UIAppFonts: [Inter-Regular.ttf, Inter-Medium.ttf, Inter-SemiBold.ttf, Inter-Bold.ttf, Inter-ExtraBold.ttf, Inter-Black.ttf]
+        UIUserInterfaceStyle: Dark
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen:
+          UIColorName: LaunchBg
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.filmfrei24.tv
+        TARGETED_DEVICE_FAMILY: "3"
+        ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
