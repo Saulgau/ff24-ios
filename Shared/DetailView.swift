@@ -13,7 +13,13 @@ struct DetailView: View {
     @State private var solid = false
 
     var body: some View {
-        if let it = store.web.by[key] { content(it) }
+        if let it = store.web.by[key] {
+            #if os(tvOS)
+            TVDetail(it: it)
+            #else
+            content(it)
+            #endif
+        }
         else { VStack { SubHead(title: ""); if store.web.isEmpty { Loading() } else { EmptyState(title: "", text: "Titel nicht gefunden.") }; Spacer() }.background(FF.bg.ignoresSafeArea()) }
     }
 

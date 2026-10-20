@@ -113,6 +113,7 @@ struct FF24App: App {
             .environmentObject(router)
             .preferredColorScheme(.dark)
             .onChange(of: phase) { p in if p == .active { Task { await store.refreshMe() } } }
+            .task { await DebugScreen.apply(store: store, router: router) }
             .modifier(UpdateCheck())
         }
     }
@@ -161,15 +162,25 @@ struct Root: View {
     var body: some View {
         #if os(tvOS)
         // Fernseher: Reiter oben (tvOS-Standard), Detailseiten legen sich darüber
+        // 2026-10-20: eigene Fernseh-Oberfläche (Prime-Aufbau im FF24-Design) statt System-Reitern
         stack {
-            TabView(selection: $router.tab) {
-                HomeView().tabItem { Text("Start") }.tag("home")
-                ListView(kind: "filme", g: "", s: "").tabItem { Text("Filme") }.tag("filme")
-                ListView(kind: "serien", g: "", s: "").tabItem { Text("Serien") }.tag("serien")
-                SearchView().tabItem { Image(systemName: "magnifyingglass") }.tag("suche")
-                WishesView().tabItem { Text("Wünsche") }.tag("wuensche")
-                MessagesView().tabItem { Image(systemName: "bell") }.tag("nachrichten")
-                AccountView().tabItem { Text("Konto") }.tag("konto")
+            switch router.tab {
+            case "filme": TVHome(kind: "filme")
+            case "serien": TVHome(kind: "serien")
+            case "merkliste": TVHome(kind: "merkliste")
+            case "home": TVHome()
+            default:
+                VStack(spacing: 0) {
+                    TVNav()
+                    Group {
+                        switch router.tab {
+                        case "suche": SearchView()
+                        case "wuensche": WishesView()
+                        case "nachrichten": MessagesView()
+                        default: AccountView()
+                        }
+                    }.padding(.top, 10)
+                }
             }
         }
         .background(FF.bg.ignoresSafeArea())
@@ -263,3 +274,23 @@ struct TabBar: View {
     }
 }
 #endif
+
+
+/// Nur für automatische Bildschirmfotos im Simulator (GitHub-Workflow): -ff24screen <home|filme|serien|detail-film|detail-serie|login|konto|suche>
+enum DebugScreen {
+    @MainActor static func apply(store: Store, router: Router) async {
+        let a = ProcessInfo.processInfo.arguments
+        guard let i = a.firstIndex(of: "-ff24screen"), i + 1 < a.count else { return }
+        let w = a[i + 1]
+        for _ in 0..<60 where store.web.isEmpty { try? await Task.sleep(nanoseconds: 500_000_000) }
+        switch w {
+        case "filme", "serien", "konto", "suche", "wuensche": router.switchTab(w)
+        case "login": router.go(.login(register: false))
+        case "detail-film":
+            if let it = store.web.top.first(where: { !$0.isSeries && store.web.trailers[$0.id] != nil }) ?? store.web.films.first { router.open(it) }
+        case "detail-serie":
+            if let it = store.web.top.first(where: { $0.isSeries }) ?? store.web.series.first { router.open(it) }
+        default: break
+        }
+    }
+}
