@@ -52,9 +52,12 @@ struct TVBackdrop: View {
             p.isMuted = true
             player = p
             p.play()
-            try? await Task.sleep(nanoseconds: 900_000_000)
-            if Task.isCancelled { return }
-            if p.timeControlStatus == .playing || p.currentTime().seconds > 0.2 { withAnimation(.easeIn(duration: 0.6)) { showVideo = true } }
+            // erst einblenden, wenn wirklich Bilder laufen (Laden kann dauern), sonst Standbild lassen
+            for _ in 0..<30 {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                if Task.isCancelled { return }
+                if p.currentTime().seconds > 0.3 { withAnimation(.easeIn(duration: 0.6)) { showVideo = true }; break }
+            }
         }
         .onDisappear { stop() }
     }

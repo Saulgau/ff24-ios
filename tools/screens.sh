@@ -22,7 +22,14 @@ shoot() { # name devtype runtime app bundle screens...
     xcrun simctl launch "$dev" "$bid" "${args[@]}" >/dev/null
     sleep 20
     xcrun simctl io "$dev" screenshot "shots/$name-$sc.png" >/dev/null 2>&1
-    if [[ $sc == *+focus ]]; then sleep 8; xcrun simctl io "$dev" screenshot "shots/$name-$sc-trailer.png" >/dev/null 2>&1; fi
+    if [[ $sc == *+focus ]]; then
+      # Fernbedienung nachahmen: Simulator nach vorn, Pfeil runter (Fokus auf erste Reihe), dann rechts
+      osascript -e 'tell application "Simulator" to activate' -e 'delay 1' -e 'tell application "System Events" to key code 125' >/dev/null 2>&1 || echo "Tastendruck nicht moeglich"
+      sleep 0.25; xcrun simctl io "$dev" screenshot "shots/$name-$sc-zoom.png" >/dev/null 2>&1
+      sleep 2; xcrun simctl io "$dev" screenshot "shots/$name-$sc-fokus.png" >/dev/null 2>&1
+      osascript -e 'tell application "System Events" to key code 124' >/dev/null 2>&1
+      sleep 12; xcrun simctl io "$dev" screenshot "shots/$name-$sc-trailer.png" >/dev/null 2>&1
+    fi
     xcrun simctl terminate "$dev" "$bid" 2>/dev/null
   done
   xcrun simctl shutdown "$dev"; xcrun simctl delete "$dev"
@@ -30,7 +37,8 @@ shoot() { # name devtype runtime app bundle screens...
 TV=build/Build/Products/Release-appletvsimulator/FilmFrei24TV.app
 IOS=build/Build/Products/Release-iphonesimulator/FilmFrei24.app
 RTV=$(pick_rt tvOS); RIOS=$(pick_rt iOS)
-if [ -d "$TV" ]; then shoot appletv "$(pick_dt 'Apple TV 4K (3rd' 'Apple TV 4K')" "$RTV" "$TV" com.filmfrei24.tv home home+focus detail-film detail-serie filme login; fi
+if [ -d "$TV" ]; then open -a Simulator 2>/dev/null; sleep 3
+  shoot appletv "$(pick_dt 'Apple TV 4K (3rd' 'Apple TV 4K')" "$RTV" "$TV" com.filmfrei24.tv home home+focus detail-film detail-serie filme login; fi
 if [ -d "$IOS" ]; then
   shoot iphone-se "$(pick_dt 'iPhone SE (3rd' 'iPhone SE')" "$RIOS" "$IOS" com.filmfrei24.app home detail-film detail-serie login
   shoot iphone-promax "$(pick_dt 'iPhone 16 Pro Max' 'Pro Max')" "$RIOS" "$IOS" com.filmfrei24.app home detail-film detail-serie
