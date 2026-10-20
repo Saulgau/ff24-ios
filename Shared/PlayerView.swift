@@ -26,7 +26,7 @@ struct PlayerView: View {
             // Intro überspringen / Nächste Folge (rechts unten, wie Website)
             VStack { Spacer(); HStack { Spacer()
                 if m.showSkip {
-                    Button { m.skipIntro() } label: { pill("Intro überspringen", "forward.end.fill") }.buttonStyle(FocusStyle())
+                    Button { m.skipIntro() } label: { pill(m.skipLabel, "forward.end.fill") }.buttonStyle(FocusStyle())
                 } else if let n = m.info?.next, m.showNext {
                     Button { m.playNext() } label: { pill("Nächste Folge: S\(n.season) F\(n.ep)" + (m.countdown > 0 ? " (\(m.countdown))" : ""), "forward.fill") }.buttonStyle(FocusStyle())
                 }
@@ -86,6 +86,8 @@ final class PlayerModel: NSObject, ObservableObject, AVPlayerViewControllerDeleg
     @Published var loading = true
     @Published var error: String?
     @Published var showSkip = false
+    @Published var skipLabel = "Intro überspringen"
+    private var skipTo = 0.0
     @Published var showNext = false
     @Published var countdown = 0
 
@@ -171,7 +173,10 @@ final class PlayerModel: NSObject, ObservableObject, AVPlayerViewControllerDeleg
         let c = cues.first { t >= $0.0 && t <= $0.1 }?.2 ?? ""
         if c != cue { cue = c }
         guard let i = info else { return }
-        if let iv = i.intro { showSkip = t >= iv.0 && t < iv.1 - 1 } else { showSkip = false }
+        // Rückblick vor Intro (wie Website): Knopf nur im erkannten Abschnitt, springt an sein Ende
+        if let r = i.recap, t >= r.0, t < r.1 - 1 { showSkip = true; skipLabel = "Rückblick überspringen"; skipTo = r.1 }
+        else if let iv = i.intro, t >= iv.0, t < iv.1 - 1 { showSkip = true; skipLabel = "Intro überspringen"; skipTo = iv.1 }
+        else { showSkip = false }
         let dur = player?.currentItem?.duration.seconds ?? 0
         if i.next != nil, dur.isFinite, dur > 0 {
             let creditsAt = i.credits ?? (dur - 25)
@@ -196,8 +201,8 @@ final class PlayerModel: NSObject, ObservableObject, AVPlayerViewControllerDeleg
     }
 
     func skipIntro() {
-        guard let iv = info?.intro else { return }
-        player?.seek(to: CMTime(seconds: iv.1, preferredTimescale: 600)); showSkip = false
+        guard skipTo > 0 else { return }
+        player?.seek(to: CMTime(seconds: skipTo, preferredTimescale: 600)); showSkip = false
     }
 
     func playNext() {

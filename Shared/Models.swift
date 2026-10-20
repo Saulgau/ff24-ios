@@ -109,6 +109,7 @@ struct PlayInfo {
     let type: String, id, title, sub, src, vtt, poster, progressSlug: String
     let season, ep: Int?
     let intro: (Double, Double)?
+    let recap: (Double, Double)?
     let credits: Double?
     let next: (season: Int, ep: Int, title: String, thumb: String)?
 
@@ -118,7 +119,11 @@ struct PlayInfo {
         poster = o.s("poster"); progressSlug = o.s("progressSlug").isEmpty ? o.s("id") : o.s("progressSlug")
         season = o.i("season"); ep = o.i("ep")
         let sk = o.o("skip")
-        if let a = sk?["intro"] as? [Any], a.count == 2, let x = (a[0] as? NSNumber)?.doubleValue, let y = (a[1] as? NSNumber)?.doubleValue { intro = (x, y) } else { intro = nil }
+        func seg(_ n: String) -> (Double, Double)? {
+            guard let a = sk?[n] as? [Any], a.count == 2, let x = (a[0] as? NSNumber)?.doubleValue, let y = (a[1] as? NSNumber)?.doubleValue else { return nil }
+            return (x, y)
+        }
+        intro = seg("intro"); recap = seg("recap")
         credits = sk?.d("credits")
         if let n = o.o("next"), let s = n.i("season"), let e = n.i("ep") { next = (s, e, n.s("title"), n.s("thumb")) } else { next = nil }
     }
