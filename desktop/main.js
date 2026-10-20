@@ -30,6 +30,8 @@ function createWindow() {
   Menu.setApplicationMenu(null);
   win.webContents.setUserAgent(win.webContents.getUserAgent() + ' FF24Desktop/' + app.getVersion());
   win.loadURL(HOME);
+  // Scrollbalken ausblenden (wirkt wie eine App, Scrollen per Mausrad/Tasten bleibt)
+  win.webContents.on('did-finish-load', () => win.webContents.insertCSS('html::-webkit-scrollbar,body::-webkit-scrollbar{width:0!important;height:0!important}'));
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (needsBrowser(url)) { shell.openExternal(url); return { action: 'deny' }; }
     win.loadURL(url); return { action: 'deny' };
