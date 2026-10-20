@@ -148,7 +148,7 @@ struct UpdateCheck: ViewModifier {
                 #if os(tvOS)
                 Text("FilmFrei24 \(newer?.name ?? "") ist da. Lade die neue Apple-TV-Version auf filmfrei24.com unter „App“ herunter und installiere sie wie beim ersten Mal.")
                 #else
-                Text("FilmFrei24 \(newer?.name ?? "") ist da. Lade die neue Version herunter und installiere sie wie gewohnt mit Sideloadly.")
+                Text("FilmFrei24 \(newer?.name ?? "") ist da. Lade die neue Version herunter und installiere sie wie beim ersten Mal (z. B. mit appdb).")
                 #endif
             }
     }
