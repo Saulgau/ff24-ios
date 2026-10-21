@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 #if os(tvOS)
 import CoreImage.CIFilterBuiltins
 #endif
@@ -306,6 +307,7 @@ struct SupportView: View {
             VStack(alignment: .leading, spacing: 0) {
                 SubHead(title: "Support")
                 VStack(alignment: .leading, spacing: 0) {
+                    GreyButton(label: "Fehler oder Idee schnell melden", white: true, full: true) { router.go(.feedback) }.padding(.bottom, 18)
                     BoxCard(title: "Neue Anfrage") {
                         Seg(options: TK_CAT, value: $cat)
                         if store.user == nil { Label2("Dein Name"); Field(placeholder: "Gast", text: $name) }
@@ -342,7 +344,7 @@ struct SupportView: View {
         Task {
             let r = await API.postObj("/api/support.php?action=create", ["action": "create", "category": cat, "title": title.trimmingCharacters(in: .whitespaces),
                                                                         "text": text.trimmingCharacters(in: .whitespaces), "visibility": priv ? "private" : "public",
-                                                                        "guest_name": name.isEmpty ? "Gast" : name])
+                                                                        "guest_name": name.isEmpty ? "Gast" : name, "device": deviceInfo()])
             busy = false
             if r.b("ok"), let t = r.o("ticket") { router.toast = "Anfrage gesendet"; title = ""; text = ""; router.go(.ticket(t.s("id"))) }
             else { router.toast = r.s("error").isEmpty ? "Fehler beim Senden" : r.s("error") }
@@ -530,5 +532,93 @@ struct IptvView: View {
             Text(n).font(.inter(15, .heavy)).foregroundColor(.white).frame(width: 30, height: 30).background(Circle().fill(FF.btn))
             VStack(alignment: .leading, spacing: 4) { Text(t).font(.inter(16, .bold)).foregroundColor(.white); Text(p).font(.inter(15)).foregroundColor(FF.text2).lineSpacing(5) }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(20).background(RoundedRectangle(cornerRadius: 12).fill(FF.box)).padding(.bottom, 18)
+    }
+}
+
+// MARK: - Fehler melden / Idee (2026-10-21): schnell, auch mit der Fernbedienung, Gerät geht automatisch mit
+
+/// „Apple TV (AppleTV14,1) · tvOS 18.1 · App 2.4.0 (7)“ – landet nur beim Team im Ticket.
+func deviceInfo() -> String {
+    var u = utsname(); uname(&u)
+    let model = withUnsafePointer(to: &u.machine) { $0.withMemoryRebound(to: CChar.self, capacity: 1) { String(cString: $0) } }
+    let d = UIDevice.current
+    let kind: String
+    #if os(tvOS)
+    kind = "Apple TV"
+    #else
+    kind = d.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+    #endif
+    let info = Bundle.main.infoDictionary
+    let v = (info?["CFBundleShortVersionString"] as? String ?? "?") + " (" + (info?["CFBundleVersion"] as? String ?? "?") + ")"
+    return "\(kind) (\(model)) · \(d.systemName) \(d.systemVersion) · App \(v)"
+}
+
+private let FB_BUG = ["Film/Folge startet nicht", "Bild ruckelt oder lädt lange", "Kein Ton / Ton versetzt", "Untertitel falsch oder fehlen",
+                      "App stürzt ab", "Anmeldung geht nicht", "Bedienung hakt", "Anderer Fehler"]
+private let FB_IDEA = ["Bedienung einfacher machen", "Neue Funktion", "Design", "Andere Idee"]
+
+struct FeedbackView: View {
+    @EnvironmentObject var store: Store
+    @EnvironmentObject var router: Router
+    @State private var bug = true
+    @State private var topic = ""
+    @State private var text = ""
+    @State private var busy = false
+    @State private var sent = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                SubHead(title: "Fehler melden / Idee")
+                VStack(alignment: .leading, spacing: 0) {
+                    if sent {
+                        BoxCard {
+                            Text("Danke! Deine Meldung ist beim Team.").font(.inter(20, .bold)).foregroundColor(.white)
+                            Text(store.user != nil ? "Die Antwort findest du unter Nachrichten." : "Melde dich an, um Antworten zu bekommen.").font(.inter(15)).foregroundColor(FF.text2).padding(.top, 6).padding(.bottom, 14)
+                            GreyButton(label: "Noch etwas melden", white: true) { sent = false; topic = ""; text = "" }
+                        }
+                    } else {
+                        HStack(spacing: 10) {
+                            ChipButton(label: "Fehler", on: bug) { bug = true; topic = "" }
+                            ChipButton(label: "Idee / Verbesserung", on: !bug) { bug = false; topic = "" }
+                        }.padding(.bottom, 16)
+                        Label2(bug ? "Was ist passiert?" : "Worum geht es?")
+                        FlowChips(items: bug ? FB_BUG : FB_IDEA, sel: $topic)
+                        Label2("Beschreibung (freiwillig)")
+                        Field(placeholder: bug ? "Welcher Film, was genau …" : "Deine Idee …", text: $text, multiline: true)
+                        GreyButton(label: busy ? "Wird gesendet …" : "Absenden", white: true, full: true) { send() }.padding(.top, 18)
+                        Text("Gerät und App-Version werden automatisch mitgeschickt.").font(.inter(13)).foregroundColor(FF.text2).padding(.top, 10)
+                    }
+                }.padding(.horizontal, FF.pad)
+            }.padding(.bottom, 110)
+        }
+        .background(FF.bg.ignoresSafeArea())
+    }
+
+    func send() {
+        guard !busy else { return }
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !topic.isEmpty || !t.isEmpty else { router.toast = "Bitte etwas auswählen oder beschreiben."; return }
+        busy = true
+        let title = String((topic.isEmpty ? t : topic).prefix(110))
+        Task {
+            let r = await API.postObj("/api/support.php?action=create", ["action": "create", "category": bug ? "bug" : "improvement", "title": title,
+                                                                        "text": t.isEmpty ? title : t, "visibility": "private", "guest_name": "Gast", "device": deviceInfo()])
+            busy = false
+            if r.b("ok") { sent = true } else { router.toast = r.s("error").isEmpty ? "Fehler beim Senden" : r.s("error") }
+        }
+    }
+}
+
+/// Auswahl-Knöpfe, die umbrechen (Handy) bzw. in Reihen stehen (Fernseher)
+struct FlowChips: View {
+    let items: [String]
+    @Binding var sel: String
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220 * FF.scale), spacing: 10, alignment: .leading)], alignment: .leading, spacing: 10) {
+            ForEach(items, id: \.self) { s in
+                ChipButton(label: s, on: sel == s) { sel = sel == s ? "" : s }
+            }
+        }
     }
 }

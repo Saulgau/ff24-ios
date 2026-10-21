@@ -232,7 +232,7 @@ struct TVNav: View {
     @EnvironmentObject var router: Router
     @EnvironmentObject var store: Store
     static let tabs: [(String, String, String?)] = [("home", "Start", nil), ("filme", "Filme", nil), ("serien", "Serien", nil),
-        ("merkliste", "Merkliste", nil), ("wuensche", "Wünsche", nil), ("suche", "", "magnifyingglass"), ("konto", "", "person.crop.circle")]
+        ("merkliste", "Merkliste", nil), ("wuensche", "Wünsche", nil), ("suche", "", "magnifyingglass"), ("feedback", "", "exclamationmark.bubble"), ("konto", "", "person.crop.circle")]
 
     var body: some View {
         HStack(spacing: 14) {

@@ -258,6 +258,7 @@ struct SettingsView: View {
                             SetRow(title: "Discord", sub: "Community & Neuigkeiten", last: true) { GreyButton(label: "Öffnen") { router.browser("https://discord.gg/Jzj4nYj85U") } }
                         }
                         BoxCard {
+                            SetRow(title: "Fehler melden / Idee", sub: "Schnell melden, Gerät geht automatisch mit") { GreyButton(label: "Melden") { router.go(.feedback) } }
                             SetRow(title: "Hilfe & Support", sub: "Fragen, Fehler oder Vorschläge") { GreyButton(label: "Öffnen") { router.go(.support) } }
                             SetRow(title: "Angemeldet als", sub: u.email.isEmpty ? u.name : u.email) { GreyButton(label: "Abmelden") { Task { await store.logout(); router.switchTab("home") } } }
                             SetRow(title: "App-Version", sub: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "", last: true) { EmptyView() }

@@ -6,7 +6,7 @@ import AuthenticationServices
 enum Route: Hashable {
     case title(String)                       // Item.key
     case list(kind: String, g: String, s: String)
-    case cont, settings, support, ticket(String), iptv, forgot, login(register: Bool)
+    case cont, settings, support, feedback, ticket(String), iptv, forgot, login(register: Bool)
 }
 
 struct PlayRequest: Identifiable {
@@ -40,6 +40,7 @@ final class Router: ObservableObject {
             #endif
         case "weiterschauen": go(.cont)
         case "support": go(.support)
+        case "feedback": go(.feedback)
         case "iptv": go(.iptv)
         case "wuensche", "konto", "nachrichten", "suche", "home": switchTab(r)
         default: switchTab("home")
@@ -177,6 +178,7 @@ struct Root: View {
                         case "suche": SearchView()
                         case "wuensche": WishesView()
                         case "nachrichten": MessagesView()
+                        case "feedback": FeedbackView()
                         default: AccountView()
                         }
                     }.padding(.top, 10)
@@ -222,6 +224,7 @@ struct Root: View {
                         case .cont: ContinueView()
                         case .settings: SettingsView()
                         case .support: SupportView()
+                        case .feedback: FeedbackView()
                         case .ticket(let id): TicketView(id: id)
                         case .iptv: IptvView()
                         case .forgot: ForgotView()
