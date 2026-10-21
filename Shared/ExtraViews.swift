@@ -285,7 +285,7 @@ func forumGk() -> String {
     UserDefaults.standard.set(g, forKey: k)
     return g
 }
-func forumQ() -> String { Store.shared.user == nil ? "&gk=" + forumGk() : "" }
+@MainActor func forumQ() -> String { Store.shared.user == nil ? "&gk=" + forumGk() : "" }
 var forumName: String {
     get { UserDefaults.standard.string(forKey: "ff24_forum_name") ?? "" }
     set { UserDefaults.standard.set(newValue, forKey: "ff24_forum_name") }
