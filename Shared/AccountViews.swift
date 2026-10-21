@@ -60,7 +60,9 @@ struct SearchView: View {
                     coll("Neue Folgen") { router.list("serien", s: "neu") }
                     coll("Am besten bewertet") { router.list("filme", s: "bewertung") }
                     coll("Alle Serien") { router.list("serien", s: "bewertung") }
+                    #if !os(tvOS)
                     coll("Film wünschen") { router.switchTab("wuensche") }
+                    #endif
                 }
             }.padding(.horizontal, FF.pad).padding(.top, 10).padding(.bottom, 110)
         }
@@ -134,7 +136,11 @@ struct AccountView: View {
                     GreyButton(label: "⭐ FilmFrei24 unterstützen · 10 € im Monat") { memberCheckout() }.padding(.top, 14)
                 }
             }.padding(.top, 10).padding(.bottom, 20)
+            #if os(tvOS)
+            Tabs(labels: ["Weiterschauen", "Merkliste"], sel: $tab)   // Wünsche nur am Handy/PC (2026-10-21)
+            #else
             Tabs(labels: ["Weiterschauen", "Merkliste", "Meine Wünsche"], sel: $tab)
+            #endif
             VStack(alignment: .leading, spacing: 0) {
                 switch tab {
                 case 0:
@@ -258,8 +264,7 @@ struct SettingsView: View {
                             SetRow(title: "Discord", sub: "Community & Neuigkeiten", last: true) { GreyButton(label: "Öffnen") { router.browser("https://discord.gg/Jzj4nYj85U") } }
                         }
                         BoxCard {
-                            SetRow(title: "Fehler melden / Idee", sub: "Schnell melden, Gerät geht automatisch mit") { GreyButton(label: "Melden") { router.go(.feedback) } }
-                            SetRow(title: "Hilfe & Support", sub: "Fragen, Fehler oder Vorschläge") { GreyButton(label: "Öffnen") { router.go(.support) } }
+                            SetRow(title: "Support & Forum", sub: "Fehler melden, Ideen vorschlagen, mitreden") { GreyButton(label: "Öffnen") { router.route("support") } }
                             SetRow(title: "Angemeldet als", sub: u.email.isEmpty ? u.name : u.email) { GreyButton(label: "Abmelden") { Task { await store.logout(); router.switchTab("home") } } }
                             SetRow(title: "App-Version", sub: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "", last: true) { EmptyView() }
                         }

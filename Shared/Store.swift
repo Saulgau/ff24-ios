@@ -140,6 +140,7 @@ final class Store: ObservableObject {
     }
 
     func playLabel(_ it: Item) -> String {
+        if it.soon > 0 { return it.soon == 2 ? "Wird gerade aktualisiert" : "Bald verfügbar" }
         let p = last(it)
         if let p, p.pct < 95 { return it.isSeries && p.season != nil ? "S\(p.season!) F\(p.episode ?? 1) fortsetzen" : "Fortsetzen" }
         if it.isSeries, p?.season != nil { return "Nächste Folge abspielen" }
@@ -155,9 +156,12 @@ final class Store: ObservableObject {
                 guard let en = e.i("n") else { return nil }
                 return WebEpisode(n: en, title: e.s("title"), desc: e.s("desc"), min: e.i("min") ?? 0, date: e.s("date"), thumb: e.s("thumb"), ok: e.b("ok"))
             })
-        }.filter { $0.episodes.contains(where: \.ok) }
-        seasonCache[id] = s
-        return s
+        }
+        // Bald-Serie (noch keine fertige Folge): alle Staffeln zeigen, sonst nur Staffeln mit fertigen Folgen
+        let ready = s.filter { $0.episodes.contains(where: \.ok) }
+        let s2 = ready.isEmpty ? s.filter { !$0.episodes.isEmpty } : ready
+        seasonCache[id] = s2
+        return s2
     }
 
     /// Was „Abspielen“ startet (wie playItem der Website): angefangene Folge, sonst nächste, sonst S1 F1.

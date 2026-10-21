@@ -49,7 +49,7 @@ struct DetailView: View {
                         let b = store.web.badge(it), r = store.web.rank(it)
                         if (!b.isEmpty && b != "TOP 10") || r >= 0 {
                             HStack(spacing: 12) {
-                                if !b.isEmpty && b != "TOP 10" { Pill(text: b, bg: .white, fg: FF.dark) }
+                                if !b.isEmpty && b != "TOP 10" { Pill(text: b, bg: isSoonBadge(b) ? FF.soon : .white, fg: FF.dark) }
                                 if r >= 0 { Text("Nr. \(r + 1) in Deutschland").font(.inter(15, .bold)).foregroundColor(FF.green) }
                             }.padding(.bottom, 14)
                         }
@@ -59,7 +59,8 @@ struct DetailView: View {
                                     .foregroundColor(.white).padding(.horizontal, 16).padding(.vertical, 11).background(RoundedRectangle(cornerRadius: 8).fill(FF.btn))
                             }.buttonStyle(FocusStyle()).padding(.bottom, 18)
                         }
-                        Cta(label: store.playLabel(it)) { router.playItem(it) }.frame(maxWidth: FF.scale > 1 ? 600 : .infinity)
+                        Cta(label: store.playLabel(it), icon: it.soon > 0 ? nil : "play.fill") { router.playItem(it) }.frame(maxWidth: FF.scale > 1 ? 600 : .infinity)
+                            .disabled(it.soon > 0).opacity(it.soon > 0 ? 0.45 : 1)
                         HStack(spacing: 0) {
                             iconAction(store.inList(it) ? "checkmark" : "plus", store.inList(it) ? "Gemerkt" : "Merkliste") {
                                 if store.user == nil { router.go(.login(register: false)); return }

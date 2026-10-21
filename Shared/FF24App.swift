@@ -51,8 +51,12 @@ final class Router: ObservableObject {
             list(r)
             #endif
         case "weiterschauen": go(.cont)
-        case "support": go(.support)
-        case "feedback": go(.feedback)
+        case "support":
+            #if os(tvOS)
+            switchTab("support")
+            #else
+            go(.support)
+            #endif
         case "iptv": go(.iptv)
         case "wuensche", "konto", "nachrichten", "suche", "home": switchTab(r)
         default: switchTab("home")
@@ -60,6 +64,7 @@ final class Router: ObservableObject {
     }
 
     func playItem(_ it: Item) {
+        if it.soon > 0 { toast = it.soon == 2 ? "Wird gerade aktualisiert – bald wieder da." : "Bald verfügbar"; return }
         Task {
             let s = Store.shared
             guard let t = await s.playTarget(it) else { toast = "Noch keine Folgen verfügbar."; return }
@@ -190,7 +195,7 @@ struct Root: View {
                         case "suche": SearchView()
                         case "wuensche": WishesView()
                         case "nachrichten": MessagesView()
-                        case "feedback": FeedbackView()
+                        case "support": SupportView()
                         default: AccountView()
                         }
                     }.padding(.top, 10)
@@ -237,7 +242,7 @@ struct Root: View {
                         case .cont: ContinueView()
                         case .settings: SettingsView()
                         case .support: SupportView()
-                        case .feedback: FeedbackView()
+                        case .feedback: SupportView()
                         case .ticket(let id): TicketView(id: id)
                         case .iptv: IptvView()
                         case .forgot: ForgotView()

@@ -1,5 +1,8 @@
 import SwiftUI
 import UIKit
+#if os(iOS)
+import PhotosUI
+#endif
 #if os(tvOS)
 import CoreImage.CIFilterBuiltins
 #endif
@@ -260,8 +263,8 @@ struct QRPayView: View {
 
 // MARK: - Support
 
-private let TK_CAT: [(String, String)] = [("bug", "Fehler"), ("improvement", "Verbesserung"), ("general", "Allgemein")]
-private func tkCat(_ k: String) -> String { TK_CAT.first { $0.0 == k }?.1 ?? "Allgemein" }
+private let TK_CAT: [(String, String)] = [("bug", "Fehler"), ("improvement", "Verbesserung"), ("general", "Frage")]
+private func tkCat(_ k: String) -> String { TK_CAT.first { $0.0 == k }?.1 ?? "Frage" }
 private let TK_ST: [String: (String, Color, Color)] = [
     "open": ("Offen", Color(hex: 0x1A98FF, alpha: 0.16), Color(hex: 0x7CC0FF)), "in_progress": ("In Bearbeitung", Color(hex: 0xF2C94C, alpha: 0.16), FF.yellow),
     "resolved": ("Gelöst", Color(hex: 0x1FB36B, alpha: 0.18), FF.green), "done": ("Erledigt", Color(hex: 0x1FB36B, alpha: 0.18), FF.green),
@@ -270,21 +273,179 @@ private let TK_ST: [String: (String, Color, Color)] = [
 private func tkSt(_ s: String) -> (String, Color, Color) { TK_ST[s] ?? TK_ST["open"]! }
 private func isOpenTk(_ t: J) -> Bool { !["closed", "resolved", "done", "wontfix"].contains(t.s("status")) }
 
+// MARK: - Support & Forum (2026-10-21)
+// Wie die Website: öffentliche Themen kann jeder lesen und mitschreiben – auch Gäste ohne Anmeldung (eigener
+// Geräteschlüssel gk, damit man seine Themen wiederfindet). Bilder anhängen (iPhone/iPad), max. 4 je Beitrag.
+
+/// Geräteschlüssel für Gäste (bleibt in der App gespeichert)
+func forumGk() -> String {
+    let k = "ff24_forum_gk"
+    if let g = UserDefaults.standard.string(forKey: k) { return g }
+    let g = "a" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(24)
+    UserDefaults.standard.set(g, forKey: k)
+    return g
+}
+func forumQ() -> String { Store.shared.user == nil ? "&gk=" + forumGk() : "" }
+var forumName: String {
+    get { UserDefaults.standard.string(forKey: "ff24_forum_name") ?? "" }
+    set { UserDefaults.standard.set(newValue, forKey: "ff24_forum_name") }
+}
+func forumImgURL(_ u: String) -> URL? { URL(string: u.hasPrefix("http") ? u : BASE + u) }
+
+/// Thumbnails eines Beitrags, antippen = groß
+struct ForumImages: View {
+    let urls: [String]
+    var remove: ((String) -> Void)? = nil
+    @State private var big: String?
+    var body: some View {
+        if !urls.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(urls, id: \.self) { u in
+                        Button { if let remove { remove(u) } else { big = u } } label: {
+                            AsyncImage(url: forumImgURL(u)) { ph in
+                                if let i = ph.image { i.resizable().scaledToFill() } else { FF.skel }
+                            }.frame(width: 120 * FF.scale, height: 90 * FF.scale).clipShape(RoundedRectangle(cornerRadius: 8))
+                            .overlay(alignment: .topTrailing) {
+                                if remove != nil { Image(systemName: "xmark.circle.fill").foregroundColor(.white).padding(4) }
+                            }
+                        }.buttonStyle(FocusStyle())
+                    }
+                }
+            }.padding(.top, 10)
+            #if os(iOS)
+            .fullScreenCover(item: Binding(get: { big.map { BigImg(url: $0) } }, set: { big = $0?.url })) { b in
+                ZStack(alignment: .topTrailing) {
+                    Color.black.ignoresSafeArea()
+                    AsyncImage(url: forumImgURL(b.url)) { ph in if let i = ph.image { i.resizable().scaledToFit() } else { ProgressView().tint(.white) } }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    Button { big = nil } label: { Image(systemName: "xmark").font(.system(size: 18, weight: .bold)).foregroundColor(.white).frame(width: 44, height: 44).background(Circle().fill(Color.white.opacity(0.2))) }.padding(16)
+                }
+            }
+            #endif
+        }
+    }
+    struct BigImg: Identifiable { let url: String; var id: String { url } }
+}
+
+#if os(iOS)
+/// Bilder auswählen + sofort hochladen (verkleinert auf max. 2000 px)
+struct ForumImagePicker: View {
+    @Binding var urls: [String]
+    @EnvironmentObject var router: Router
+    @State private var picks: [PhotosPickerItem] = []
+    @State private var busy = 0
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            PhotosPicker(selection: $picks, maxSelectionCount: max(1, 4 - urls.count), matching: .images) {
+                HStack(spacing: 8) { Image(systemName: "photo.on.rectangle"); Text(busy > 0 ? "Lädt hoch …" : "Bilder anhängen") }
+                    .font(.inter(15, .semibold)).foregroundColor(.white).padding(.horizontal, 16).frame(minHeight: 44)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(FF.btn))
+            }.disabled(urls.count >= 4 || busy > 0)
+            ForumImages(urls: urls) { u in urls.removeAll { $0 == u } }
+        }.padding(.top, 12)
+        .onChange(of: picks) { items in
+            guard !items.isEmpty else { return }
+            picks = []
+            for it in items {
+                busy += 1
+                Task {
+                    defer { busy -= 1 }
+                    guard let d = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: d) else { router.toast = "Bild konnte nicht gelesen werden"; return }
+                    let s = min(1, 2000 / max(img.size.width, img.size.height))
+                    let sz = CGSize(width: img.size.width * s, height: img.size.height * s)
+                    let out = UIGraphicsImageRenderer(size: sz).image { _ in img.draw(in: CGRect(origin: .zero, size: sz)) }
+                    guard let jpg = out.jpegData(compressionQuality: 0.85) else { return }
+                    let r = (try? await API.upload("/api/support.php?action=upload" + forumQ(), field: "file", filename: "bild.jpg", mime: "image/jpeg", data: jpg)) ?? [:]
+                    if r.b("ok"), urls.count < 4 { urls.append(r.s("url")) } else if !r.b("ok") { router.toast = r.s("error").isEmpty ? "Upload fehlgeschlagen" : r.s("error") }
+                }
+            }
+        }
+    }
+}
+#endif
+
+private let FB_TOPICS: [String: [String]] = [
+    "bug": ["Film/Folge startet nicht", "Bild ruckelt oder lädt lange", "Kein Ton / Ton versetzt", "Untertitel falsch oder fehlen",
+            "App stürzt ab", "Anmeldung geht nicht", "Anderer Fehler"],
+    "improvement": ["Bedienung einfacher machen", "Neue Funktion", "Design", "Andere Idee"],
+    "general": ["Konto / Anmeldung", "Unterstützer / Bezahlung", "Wünsche", "Andere Frage"],
+]
+
+/// Neues Thema: Fehler / Verbesserung / Frage, Punkt antippen, Text, Bilder, öffentlich oder privat.
+/// Geht auch mit der Fernbedienung (Text freiwillig). Gerät + App-Version gehen automatisch mit (nur fürs Team).
+struct SupportForm: View {
+    @EnvironmentObject var store: Store
+    @EnvironmentObject var router: Router
+    var onSent: (String) -> Void = { _ in }
+    @State private var cat = "improvement"
+    @State private var topic = ""
+    @State private var title = ""
+    @State private var text = ""
+    @State private var name = forumName
+    @State private var pub = true
+    @State private var imgs: [String] = []
+    @State private var busy = false
+
+    var body: some View {
+        BoxCard(title: "Neues Thema") {
+            HStack(spacing: 10) {
+                ForEach(TK_CAT, id: \.0) { k, l in ChipButton(label: l, on: cat == k) { cat = k; topic = ""; pub = k == "improvement" } }
+            }.padding(.bottom, 6)
+            Label2(cat == "bug" ? "Was ist passiert?" : cat == "improvement" ? "Worum geht es?" : "Thema")
+            FlowChips(items: FB_TOPICS[cat] ?? [], sel: $topic)
+            if store.user == nil { Label2("Dein Name (freiwillig)"); Field(placeholder: "Gast", text: $name) }
+            Label2("Betreff (freiwillig)"); Field(placeholder: topic.isEmpty ? "Worum geht es?" : topic, text: $title)
+            Label2("Nachricht"); Field(placeholder: cat == "bug" ? "Welcher Film, was genau …" : "Schreib uns …", text: $text, multiline: true)
+            #if os(iOS)
+            ForumImagePicker(urls: $imgs)
+            #endif
+            HStack(spacing: 10) {
+                ChipButton(label: "Öffentlich – alle reden mit", on: pub) { pub = true }
+                ChipButton(label: "Privat – nur Team", on: !pub) { pub = false }
+            }.padding(.top, 14)
+            GreyButton(label: busy ? "Wird gesendet …" : "Absenden", white: true, full: true) { send() }.padding(.top, 14)
+            Text("Jeder kann mitmachen, auch ohne Anmeldung. Gerät und App-Version sieht nur das Team.").font(.inter(13)).foregroundColor(FF.text2).padding(.top, 10)
+        }
+    }
+
+    func send() {
+        guard !busy else { return }
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines), ti = title.trimmingCharacters(in: .whitespaces)
+        let head = !ti.isEmpty ? ti : (!topic.isEmpty ? topic : String(t.prefix(80)))
+        guard !head.isEmpty else { router.toast = "Bitte ein Thema antippen oder etwas schreiben."; return }
+        busy = true
+        if store.user == nil { forumName = name.trimmingCharacters(in: .whitespaces) }
+        Task {
+            var body: J = ["action": "create", "category": cat, "title": String(head.prefix(110)), "text": t.isEmpty ? head : t,
+                           "visibility": pub ? "public" : "private", "guest_name": name.isEmpty ? "Gast" : name, "device": deviceInfo(), "images": imgs]
+            if store.user == nil { body["gk"] = forumGk() }
+            let r = await API.postObj("/api/support.php?action=create", body)
+            busy = false
+            if r.b("ok"), let tk = r.o("ticket") { topic = ""; title = ""; text = ""; imgs = []; router.toast = "Thema erstellt"; onSent(tk.s("id")) }
+            else { router.toast = r.s("error").isEmpty ? "Fehler beim Senden" : r.s("error") }
+        }
+    }
+}
+
 struct TicketRow: View {
     let t: J
     let open: () -> Void
     var body: some View {
-        let st = tkSt(t.s("status")), n = t.a("messages").count
-        let who: String = t.s("user_name").isEmpty ? "Gast" : t.s("user_name")
-        let msgs: String = " · \(n) Nachricht" + (n == 1 ? "" : "en")
-        let when: String = t.d("updated_at").map { " · " + dfmt($0) } ?? ""
-        let line: String = who + msgs + when
+        let st = tkSt(t.s("status")), msgs = t.a("messages"), n = max(0, msgs.count - 1)
+        let people = Set(msgs.map { $0.b("from_admin") ? "admin" : ($0.s("user_id").isEmpty ? $0.s("user_name") : $0.s("user_id")) }).count
+        let imgs = msgs.contains { !$0.strs("images").isEmpty }
+        let line = (t.s("user_name").isEmpty ? "Gast" : t.s("user_name")) + " · \(n) Antwort" + (n == 1 ? "" : "en")
+            + (people > 1 ? " · \(people) Beteiligte" : "") + (t.d("updated_at").map { " · " + dfmt($0) } ?? "")
         Button(action: open) {
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) { Pill(text: st.0, bg: st.1, fg: st.2); Pill(text: tkCat(t.s("category"))) }.padding(.bottom, 2)
+                HStack(spacing: 8) {
+                    Pill(text: st.0, bg: st.1, fg: st.2); Pill(text: tkCat(t.s("category")))
+                    if t.s("visibility") == "private" { Image(systemName: "lock.fill").font(.system(size: 12 * FF.scale)).foregroundColor(FF.text2) }
+                    if imgs { Image(systemName: "photo").font(.system(size: 12 * FF.scale)).foregroundColor(FF.text2) }
+                }.padding(.bottom, 2)
                 Text(t.s("title")).font(.inter(16, .bold)).foregroundColor(.white).multilineTextAlignment(.leading)
-                Text(line)
-                    .font(.inter(13)).foregroundColor(FF.text2)
+                Text(line).font(.inter(13)).foregroundColor(FF.text2)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(16).background(RoundedRectangle(cornerRadius: 10).fill(FF.box))
         }.buttonStyle(FocusStyle()).padding(.bottom, 8)
     }
@@ -294,62 +455,43 @@ struct SupportView: View {
     @EnvironmentObject var store: Store
     @EnvironmentObject var router: Router
     @State private var tks: [J]? = nil
-    @State private var cat = "general"
-    @State private var name = ""
-    @State private var title = ""
-    @State private var text = ""
-    @State private var priv = false
-    @State private var busy = false
     @State private var f = "open"
+    @State private var c = ""
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                SubHead(title: "Support")
+                SubHead(title: "Support & Forum")
                 VStack(alignment: .leading, spacing: 0) {
-                    GreyButton(label: "Fehler oder Idee schnell melden", white: true, full: true) { router.go(.feedback) }.padding(.bottom, 18)
-                    BoxCard(title: "Neue Anfrage") {
-                        Seg(options: TK_CAT, value: $cat)
-                        if store.user == nil { Label2("Dein Name"); Field(placeholder: "Gast", text: $name) }
-                        Label2("Betreff"); Field(placeholder: "Worum geht es?", text: $title)
-                        Label2("Nachricht"); Field(placeholder: "Beschreibe dein Anliegen …", text: $text, multiline: true)
-                        Toggle("Nur für mich und das Team sichtbar", isOn: $priv).font(.inter(15)).foregroundColor(.white).tint(FF.blue).padding(.vertical, 12)
-                        GreyButton(label: busy ? "Wird gesendet …" : "Absenden", white: true) { send() }
-                    }
+                    Text("Fehler melden, Ideen vorschlagen, Fragen stellen – jeder kann mitmachen, auch ohne Anmeldung.")
+                        .font(.inter(15)).foregroundColor(FF.text2).padding(.bottom, 16)
+                    SupportForm { id in Task { await reload() }; router.go(.ticket(id)) }
                     if let l = tks {
-                        let mine = store.user.map { u in l.filter { $0.s("user_id") == u.id } } ?? []
+                        let mine = l.filter { $0.b("is_own") }
                         if !mine.isEmpty {
-                            Text("Meine Anfragen").font(.inter(22, .bold)).foregroundColor(.white).padding(.top, 22).padding(.bottom, 10)
-                            ForEach(mine.indices, id: \.self) { i in TicketRow(t: mine[i]) { router.go(.ticket(mine[i].s("id"))) } }
+                            Text("Meine Themen").font(.inter(22, .bold)).foregroundColor(.white).padding(.top, 22).padding(.bottom, 10)
+                            ForEach(Array(mine.prefix(20).enumerated()), id: \.offset) { _, t in TicketRow(t: t) { router.go(.ticket(t.s("id"))) } }
                         }
-                        HStack(spacing: 8) {
-                            ChipButton(label: "Offen (\(l.filter(isOpenTk).count))", on: f == "open", dark: false) { f = "open" }
-                            ChipButton(label: "Geschlossen (\(l.filter { !isOpenTk($0) }.count))", on: f == "closed", dark: false) { f = "closed" }
-                        }.padding(.top, 22).padding(.bottom, 14)
-                        let shown = Array(l.filter { f == "open" ? isOpenTk($0) : !isOpenTk($0) }.prefix(80))
-                        if shown.isEmpty { Text("Keine Anfragen.").foregroundColor(FF.text2) }
-                        ForEach(shown.indices, id: \.self) { i in TicketRow(t: shown[i]) { router.go(.ticket(shown[i].s("id"))) } }
+                        Text("Forum").font(.inter(22, .bold)).foregroundColor(.white).padding(.top, 22).padding(.bottom, 10)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach([("", "Alle"), ("improvement", "Vorschläge"), ("bug", "Fehler"), ("general", "Fragen")], id: \.0) { k, lb in
+                                    ChipButton(label: lb, on: c == k, dark: false) { c = k }
+                                }
+                                ChipButton(label: f == "open" ? "Offen" : "Erledigt", on: true, dark: false) { f = f == "open" ? "closed" : "open" }
+                            }
+                        }.padding(.bottom, 14)
+                        let shown = Array(l.filter { (f == "open" ? isOpenTk($0) : !isOpenTk($0)) && (c.isEmpty || $0.s("category") == c) }.prefix(100))
+                        if shown.isEmpty { Text("Keine Themen.").foregroundColor(FF.text2) }
+                        ForEach(Array(shown.enumerated()), id: \.offset) { _, t in TicketRow(t: t) { router.go(.ticket(t.s("id"))) } }
                     } else { FF.skel.frame(height: 120).clipShape(RoundedRectangle(cornerRadius: 12)) }
                 }.padding(.horizontal, FF.pad)
             }.padding(.bottom, 110)
         }
         .background(FF.bg.ignoresSafeArea())
-        .task(id: store.user?.id) { tks = await API.getObj("/api/support.php?action=list").a("tickets") }
+        .task(id: store.user?.id) { await reload() }
     }
-
-    func send() {
-        guard !busy else { return }
-        guard !title.trimmingCharacters(in: .whitespaces).isEmpty, !text.trimmingCharacters(in: .whitespaces).isEmpty else { router.toast = "Bitte Betreff und Nachricht ausfüllen."; return }
-        busy = true
-        Task {
-            let r = await API.postObj("/api/support.php?action=create", ["action": "create", "category": cat, "title": title.trimmingCharacters(in: .whitespaces),
-                                                                        "text": text.trimmingCharacters(in: .whitespaces), "visibility": priv ? "private" : "public",
-                                                                        "guest_name": name.isEmpty ? "Gast" : name, "device": deviceInfo()])
-            busy = false
-            if r.b("ok"), let t = r.o("ticket") { router.toast = "Anfrage gesendet"; title = ""; text = ""; router.go(.ticket(t.s("id"))) }
-            else { router.toast = r.s("error").isEmpty ? "Fehler beim Senden" : r.s("error") }
-        }
-    }
+    func reload() async { tks = await API.getObj("/api/support.php?action=list" + forumQ()).a("tickets") }
 }
 
 struct TicketView: View {
@@ -360,69 +502,87 @@ struct TicketView: View {
     @State private var t: J? = nil
     @State private var loaded = false
     @State private var reply = ""
+    @State private var name = forumName
+    @State private var imgs: [String] = []
     @State private var busy = false
     @State private var confirmDel = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                SubHead(title: "Anfrage")
+                SubHead(title: "Thema")
                 VStack(alignment: .leading, spacing: 0) {
                     if let tk = t {
-                        let st = tkSt(tk.s("status"))
+                        let st = tkSt(tk.s("status")), priv = tk.s("visibility") == "private"
                         Text(tk.s("title")).font(.inter(22, .bold)).foregroundColor(.white).padding(.bottom, 10)
-                        HStack(spacing: 8) { Pill(text: st.0, bg: st.1, fg: st.2); Pill(text: tkCat(tk.s("category"))) }.padding(.bottom, 14)
-                        ForEach(tk.a("messages").indices, id: \.self) { i in
-                            let m = tk.a("messages")[i], admin = m.b("from_admin")
-                            HStack {
-                                if !admin { Spacer(minLength: 60) }
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text((admin ? "FilmFrei24 Support" : (m.s("user_name").isEmpty ? "Du" : m.s("user_name"))) + (m.d("time").map { " · " + dfmt($0) } ?? ""))
-                                        .font(.inter(12)).foregroundColor(FF.text2)
-                                    Text(m.s("text")).font(.inter(15)).foregroundColor(.white)
-                                }.padding(.horizontal, 14).padding(.vertical, 12)
-                                    .background(RoundedRectangle(cornerRadius: 12).fill(admin ? FF.field : Color(hex: 0x1A98FF, alpha: 0.18)))
-                                if admin { Spacer(minLength: 60) }
-                            }.padding(.vertical, 8)
-                        }
-                        if tk.s("status") == "closed" { Text("Diese Anfrage ist geschlossen.").foregroundColor(FF.text2).padding(.vertical, 12) }
-                        else {
+                        HStack(spacing: 8) {
+                            Pill(text: st.0, bg: st.1, fg: st.2); Pill(text: tkCat(tk.s("category")))
+                            Pill(text: priv ? "Privat" : "Öffentlich")
+                        }.padding(.bottom, 8)
+                        if !tk.s("device").isEmpty { Text(tk.s("device")).font(.inter(12)).foregroundColor(FF.text2).padding(.bottom, 8) }
+                        ForEach(Array(tk.a("messages").enumerated()), id: \.offset) { _, m in post(m) }
+                        if tk.s("status") == "closed" { Text("Dieses Thema ist geschlossen.").foregroundColor(FF.text2).padding(.vertical, 12) }
+                        else if tk.b("can_reply") {
                             BoxCard {
-                                Field(placeholder: "Antwort schreiben …", text: $reply, multiline: true)
-                                GreyButton(label: busy ? "…" : "Senden", white: true) { sendReply(tk) }.padding(.top, 10)
-                            }.padding(.top, 16)
+                                if store.user == nil { Label2("Dein Name (freiwillig)"); Field(placeholder: "Gast", text: $name) }
+                                Field(placeholder: priv || tk.b("is_own") ? "Antwort schreiben …" : "Mitreden – deine Meinung oder Ergänzung …", text: $reply, multiline: true)
+                                #if os(iOS)
+                                ForumImagePicker(urls: $imgs)
+                                #endif
+                                GreyButton(label: busy ? "…" : "Senden", white: true) { sendReply(tk) }.padding(.top, 12)
+                            }.padding(.top, 8)
                         }
                         if store.user?.role == "admin" { adminBox(tk) }
-                        GreyButton(label: "Alle Anfragen") { dismiss() }.padding(.top, 8)
+                        GreyButton(label: "Alle Themen") { dismiss() }.padding(.top, 8)
                     } else if loaded {
-                        EmptyState(title: "", text: "Anfrage nicht gefunden.") { if store.user == nil { Cta(label: "Anmelden", icon: nil, height: 48) { router.go(.login(register: false)) }.frame(maxWidth: 260) } }
+                        EmptyState(title: "", text: "Thema nicht gefunden oder privat.")
                     } else { FF.skel.frame(height: 120).clipShape(RoundedRectangle(cornerRadius: 12)) }
                 }.padding(.horizontal, FF.pad)
             }.padding(.bottom, 110)
         }
         .background(FF.bg.ignoresSafeArea())
         .task { await load() }
-        .alert("Anfrage endgültig löschen?", isPresented: $confirmDel) {
+        .alert("Thema endgültig löschen?", isPresented: $confirmDel) {
             Button("Löschen", role: .destructive) {
                 Task {
                     let r = await API.postObj("/api/support.php?action=delete", ["action": "delete", "id": id])
-                    if r.b("ok") { router.toast = "Anfrage gelöscht"; dismiss() } else { router.toast = r.s("error").isEmpty ? "Löschen fehlgeschlagen" : r.s("error") }
+                    if r.b("ok") { router.toast = "Thema gelöscht"; dismiss() } else { router.toast = r.s("error").isEmpty ? "Löschen fehlgeschlagen" : r.s("error") }
                 }
             }
             Button("Abbrechen", role: .cancel) {}
         }
     }
 
-    func load() async { t = await API.getObj("/api/support.php?action=get&id=" + API.enc(id)).o("ticket"); loaded = true }
+    func post(_ m: J) -> some View {
+        let admin = m.b("from_admin")
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(admin ? "FilmFrei24 Support" : (m.b("from_bot") ? "Support-KI" : (m.s("user_name").isEmpty ? "Gast" : m.s("user_name")))).font(.inter(15, .bold)).foregroundColor(.white)
+                if admin { Pill(text: "Team", bg: Color(hex: 0x1FB36B, alpha: 0.18), fg: FF.green) }
+                Text(m.d("time").map { dfmt($0) } ?? "").font(.inter(12)).foregroundColor(FF.text2)
+            }
+            Text(m.s("text")).font(.inter(15)).foregroundColor(.white).fixedSize(horizontal: false, vertical: true)
+            ForumImages(urls: m.strs("images"))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+        .background(RoundedRectangle(cornerRadius: 12).fill(FF.box))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(admin ? FF.green.opacity(0.45) : Color.white.opacity(0.06)))
+        .padding(.bottom, 10)
+    }
+
+    func load() async { t = await API.getObj("/api/support.php?action=get&id=" + API.enc(id) + forumQ()).o("ticket"); loaded = true }
 
     func sendReply(_ tk: J) {
         let txt = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !txt.isEmpty, !busy else { return }
+        guard (!txt.isEmpty || !imgs.isEmpty), !busy else { return }
         busy = true
+        if store.user == nil { forumName = name.trimmingCharacters(in: .whitespaces) }
         Task {
-            let r = await API.postObj("/api/support.php?action=reply", ["action": "reply", "id": tk.s("id"), "ticket_id": tk.s("id"), "text": txt])
+            var body: J = ["action": "reply", "id": tk.s("id"), "ticket_id": tk.s("id"), "text": txt.isEmpty ? "(Bild)" : txt, "images": imgs, "guest_name": name]
+            if store.user == nil { body["gk"] = forumGk() }
+            let r = await API.postObj("/api/support.php?action=reply", body)
             busy = false
-            if r.b("ok") { reply = ""; await load() } else { router.toast = r.s("error").isEmpty ? "Fehler" : r.s("error") }
+            if r.b("ok") { reply = ""; imgs = []; await load() } else { router.toast = r.s("error").isEmpty ? "Fehler" : r.s("error") }
         }
     }
 
@@ -551,63 +711,6 @@ func deviceInfo() -> String {
     let info = Bundle.main.infoDictionary
     let v = (info?["CFBundleShortVersionString"] as? String ?? "?") + " (" + (info?["CFBundleVersion"] as? String ?? "?") + ")"
     return "\(kind) (\(model)) · \(d.systemName) \(d.systemVersion) · App \(v)"
-}
-
-private let FB_BUG = ["Film/Folge startet nicht", "Bild ruckelt oder lädt lange", "Kein Ton / Ton versetzt", "Untertitel falsch oder fehlen",
-                      "App stürzt ab", "Anmeldung geht nicht", "Bedienung hakt", "Anderer Fehler"]
-private let FB_IDEA = ["Bedienung einfacher machen", "Neue Funktion", "Design", "Andere Idee"]
-
-struct FeedbackView: View {
-    @EnvironmentObject var store: Store
-    @EnvironmentObject var router: Router
-    @State private var bug = true
-    @State private var topic = ""
-    @State private var text = ""
-    @State private var busy = false
-    @State private var sent = false
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                SubHead(title: "Fehler melden / Idee")
-                VStack(alignment: .leading, spacing: 0) {
-                    if sent {
-                        BoxCard {
-                            Text("Danke! Deine Meldung ist beim Team.").font(.inter(20, .bold)).foregroundColor(.white)
-                            Text(store.user != nil ? "Die Antwort findest du unter Nachrichten." : "Melde dich an, um Antworten zu bekommen.").font(.inter(15)).foregroundColor(FF.text2).padding(.top, 6).padding(.bottom, 14)
-                            GreyButton(label: "Noch etwas melden", white: true) { sent = false; topic = ""; text = "" }
-                        }
-                    } else {
-                        HStack(spacing: 10) {
-                            ChipButton(label: "Fehler", on: bug) { bug = true; topic = "" }
-                            ChipButton(label: "Idee / Verbesserung", on: !bug) { bug = false; topic = "" }
-                        }.padding(.bottom, 16)
-                        Label2(bug ? "Was ist passiert?" : "Worum geht es?")
-                        FlowChips(items: bug ? FB_BUG : FB_IDEA, sel: $topic)
-                        Label2("Beschreibung (freiwillig)")
-                        Field(placeholder: bug ? "Welcher Film, was genau …" : "Deine Idee …", text: $text, multiline: true)
-                        GreyButton(label: busy ? "Wird gesendet …" : "Absenden", white: true, full: true) { send() }.padding(.top, 18)
-                        Text("Gerät und App-Version werden automatisch mitgeschickt.").font(.inter(13)).foregroundColor(FF.text2).padding(.top, 10)
-                    }
-                }.padding(.horizontal, FF.pad)
-            }.padding(.bottom, 110)
-        }
-        .background(FF.bg.ignoresSafeArea())
-    }
-
-    func send() {
-        guard !busy else { return }
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !topic.isEmpty || !t.isEmpty else { router.toast = "Bitte etwas auswählen oder beschreiben."; return }
-        busy = true
-        let title = String((topic.isEmpty ? t : topic).prefix(110))
-        Task {
-            let r = await API.postObj("/api/support.php?action=create", ["action": "create", "category": bug ? "bug" : "improvement", "title": title,
-                                                                        "text": t.isEmpty ? title : t, "visibility": "private", "guest_name": "Gast", "device": deviceInfo()])
-            busy = false
-            if r.b("ok") { sent = true } else { router.toast = r.s("error").isEmpty ? "Fehler beim Senden" : r.s("error") }
-        }
-    }
 }
 
 /// Auswahl-Knöpfe, die umbrechen (Handy) bzw. in Reihen stehen (Fernseher)

@@ -11,6 +11,13 @@ final class Item: Identifiable, Hashable {
     let card, hero, poster, logo: String
     var desc = "", tagline = ""
     var cast: [String] = []
+    // 2026-10-21 wie Website: soon 1 = Bald, 2 = wird aktualisiert; prog [fertig, gesamt] Serie im Aufbau;
+    // nf = Serie neu (ts), ns = [[Staffel, ts]], ne = [ts] neue Folgen
+    var soon = 0
+    var prog: [Int] = []
+    var nf: Double = 0
+    var ns: [Double] = []
+    var ne: [Double] = []
 
     var key: String { "\(t):\(id)" }
     var isSeries: Bool { t == "s" }
@@ -21,6 +28,11 @@ final class Item: Identifiable, Hashable {
         min = o.i("min") ?? 0; votes = o.i("votes") ?? 0; seasons = o.i("seasons") ?? 0; episodes = o.i("episodes") ?? 0
         genres = o.strs("genres"); rating = o.d("rating") ?? 0
         card = unpackImg(o.s("card")); hero = unpackImg(o.s("hero")); poster = unpackImg(o.s("poster")); logo = unpackImg(o.s("logo"))
+        soon = o.i("soon") ?? 0
+        prog = ((o["prog"] as? [Any]) ?? []).compactMap { ($0 as? NSNumber)?.intValue }
+        nf = o.d("nf") ?? 0
+        ns = ((o["ns"] as? [Any]) ?? []).compactMap { (($0 as? [Any])?.last as? NSNumber)?.doubleValue }
+        ne = ((o["ne"] as? [Any]) ?? []).compactMap { ($0 as? NSNumber)?.doubleValue }
     }
     static func == (a: Item, b: Item) -> Bool { a.key == b.key }
     func hash(into h: inout Hasher) { h.combine(key) }
@@ -59,10 +71,11 @@ struct WebCatalog {
     }
 
     func badge(_ it: Item) -> String {
+        if it.soon > 0 { return it.soon == 2 ? "WIRD AKTUALISIERT" : "BALD" }
         if !it.lang.isEmpty { return it.lang }
         if isTop(it) { return "TOP 10" }
-        if it.isSeries && daysAgo(it.added) < 14 { return "NEUE FOLGEN" }
-        if !it.isSeries && daysAgo(it.added) < 14 { return "NEU HINZUGEFÜGT" }
+        if it.isSeries { let n = newInfo(it); if !n.isEmpty { return n } }
+        if !it.isSeries && daysAgo(it.added) < 7 { return "NEU HINZUGEFÜGT" }
         if !it.isSeries && it.quality.lowercased().contains("sd") { return "NUR SD" }
         return ""
     }
@@ -170,8 +183,21 @@ func genreRows(_ list: [Item], max: Int) -> [(String, [Item])] {
     }
 }
 
+/// Serien-Kennzeichnung wie newInfo() der Website (nur 7 Tage)
+func newInfo(_ it: Item) -> String {
+    let now = Date().timeIntervalSince1970, fresh: (Double) -> Bool = { $0 > 0 && now - $0 < 7 * 86400 }
+    if it.prog.count == 2 { return "\(it.prog[0]) VON \(it.prog[1]) FOLGEN" }
+    if fresh(it.nf) { return "NEUE SERIE" }
+    let ns = it.ns.filter(fresh).count
+    if ns > 0 { return ns == 1 ? "NEUE STAFFEL" : "NEUE STAFFELN" }
+    let ne = it.ne.filter(fresh).count
+    return ne == 0 ? "" : (ne == 1 ? "NEUE FOLGE" : "NEUE FOLGEN")
+}
+
+func isSoonBadge(_ b: String) -> Bool { b == "BALD" || b == "WIRD AKTUALISIERT" }
+
 func heroPick(_ list: [Item], _ n: Int) -> [Item] {
-    Array(list.filter { !$0.hero.isEmpty && !$0.logo.isEmpty && $0.rating >= 5.5 }.shuffled().prefix(n))
+    Array(list.filter { $0.soon == 0 && !$0.hero.isEmpty && !$0.logo.isEmpty && $0.rating >= 5.5 }.shuffled().prefix(n))
 }
 
 func searchItems(_ all: [Item], _ q: String) -> [Item] {

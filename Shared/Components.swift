@@ -3,6 +3,7 @@ import SwiftUI
 // MARK: - Farben/Schrift 1:1 wie filmfrei24.com
 
 enum FF {
+    static let soon = Color(hex: 0xF59E0B)   // Bald-Kennzeichnung wie Website
     static let bg = Color(hex: 0x00050D)
     static let surface = Color(hex: 0x191E25)
     static let box = Color(hex: 0x14191F)
@@ -151,7 +152,7 @@ struct Badge: View {
         if !text.isEmpty {
             Text(text.uppercased()).font(.inter(10.5, .bold)).foregroundColor(FF.dark).lineLimit(1).fixedSize()
                 .padding(.horizontal, 6 * FF.scale).padding(.vertical, 3 * FF.scale)
-                .background(UnevenCorners(tr: 8, bl: 6).fill(Color.white))
+                .background(UnevenCorners(tr: 8, bl: 6).fill(isSoonBadge(text.uppercased()) ? FF.soon : Color.white))
         }
     }
 }

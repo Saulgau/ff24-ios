@@ -88,7 +88,7 @@ struct TVInfo: View {
                 .shadow(color: .black.opacity(0.6), radius: 12)
             let b = store.web.badge(it)
             if !b.isEmpty && b != "TOP 10" {
-                Text(tvBadgeText(b)).font(.tv(26, .semibold)).foregroundColor(FF.green)
+                Text(tvBadgeText(b)).font(.tv(26, .semibold)).foregroundColor(isSoonBadge(b) ? FF.soon : FF.green)
             } else if store.web.isTop(it) {
                 Text("Nr. \(store.web.rank(it) + 1) in Deutschland").font(.tv(26, .semibold)).foregroundColor(FF.green)
             }
@@ -173,6 +173,7 @@ struct TVFocusStyle: ButtonStyle {
 struct TVCard: View {
     let it: Item
     var progress: Double? = nil
+    var badge = ""
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             Color(hex: 0x141A21)
@@ -180,6 +181,12 @@ struct TVCard: View {
             LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
             LogoOrTitle(it: it, size: 22 / FF.scale).frame(maxWidth: TVL.cardW * 0.62, maxHeight: TVL.cardH * 0.36, alignment: .bottomLeading)
                 .padding(14).shadow(color: .black.opacity(0.7), radius: 6)
+            if progress == nil, !badge.isEmpty, badge != "TOP 10" {
+                Text(tvBadgeText(badge)).font(.tv(17, .bold)).foregroundColor(FF.dark).lineLimit(1)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(UnevenCorners(tr: 8, bl: 8).fill(isSoonBadge(badge) ? FF.soon : Color.white))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            }
             if let p = progress {
                 VStack { Spacer(); GeometryReader { g in
                     ZStack(alignment: .leading) { Color.white.opacity(0.25); FF.blue.frame(width: g.size.width * max(0.02, min(1, p / 100))) }
@@ -212,7 +219,7 @@ struct TVRow: View {
                                     .foregroundColor(Color(hex: 0x2B333D)).overlay(Text("\(i + 1)").font(.system(size: 190, weight: .black, design: .rounded)).foregroundColor(.clear))
                                     .frame(height: TVL.cardH).offset(y: 18)
                             }
-                            Button { open(it) } label: { TVCard(it: it, progress: progress ? store.last(it).map { Double($0.pct) } : nil) }
+                            Button { open(it) } label: { TVCard(it: it, progress: progress ? store.last(it).map { Double($0.pct) } : nil, badge: store.web.badge(it)) }
                                 .buttonStyle(TVFocusStyle())
                                 .focused(focus, equals: rowId + "|" + it.key)
                         }
@@ -232,7 +239,7 @@ struct TVNav: View {
     @EnvironmentObject var router: Router
     @EnvironmentObject var store: Store
     static let tabs: [(String, String, String?)] = [("home", "Start", nil), ("filme", "Filme", nil), ("serien", "Serien", nil),
-        ("merkliste", "Merkliste", nil), ("wuensche", "Wünsche", nil), ("suche", "", "magnifyingglass"), ("feedback", "", "exclamationmark.bubble"), ("konto", "", "person.crop.circle")]
+        ("merkliste", "Merkliste", nil), ("support", "Support", nil), ("suche", "", "magnifyingglass"), ("konto", "", "person.crop.circle")]
 
     var body: some View {
         HStack(spacing: 14) {
@@ -390,6 +397,8 @@ struct TVHome: View {
         let cont = store.contItems
         if kind == "home" && !cont.isEmpty { r.append(("cont", "Weiterschauen", Array(cont.prefix(20).map { $0.0 }), false)) }
         if kind == "home" && !store.web.top.isEmpty { r.append(("top", "Die Top 10 in Deutschland", store.web.top, true)) }
+        let soonL = list.filter { $0.soon == 1 }.sorted(by: byAdded)
+        if kind != "merkliste" && !soonL.isEmpty { r.append(("bald", "Bald verfügbar", Array(soonL.prefix(30)), false)) }
         if kind != "serien" { r.append(("neu-f", "Neu bei FilmFrei24", Array(store.web.films.sorted(by: byAdded).prefix(30)), false)) }
         if kind != "filme" { r.append(("neu-s", "Neue Folgen", Array(store.web.series.sorted(by: byAdded).prefix(30)), false)) }
         if kind != "serien" { r.append(("best", "Am besten bewertet", Array(store.web.films.filter { $0.votes > 800 }.sorted { $0.rating > $1.rating }.prefix(30)), false)) }
@@ -428,8 +437,8 @@ struct TVDetail: View {
                             Text("Mit " + it.cast.prefix(4).joined(separator: ", ")).font(.tv(22)).foregroundColor(FF.text2).lineLimit(1).frame(maxWidth: 900, alignment: .leading)
                         }
                         HStack(spacing: 20) {
-                            Button { router.playItem(it) } label: { Label(store.playLabel(it), systemImage: "play.fill") }
-                                .buttonStyle(TVActionStyle(primary: true)).focused($focus, equals: "play")
+                            Button { router.playItem(it) } label: { Label(store.playLabel(it), systemImage: it.soon > 0 ? "clock" : "play.fill") }
+                                .buttonStyle(TVActionStyle(primary: it.soon == 0)).focused($focus, equals: "play")
                             if let t = trailer {
                                 Button { router.trailer(it, t) } label: { Label("Trailer", systemImage: "film") }.buttonStyle(TVActionStyle())
                             }

@@ -23,6 +23,7 @@ struct HomeView: View {
                     }
                     PosterRow(title: "Meine Merkliste", items: Array(store.wlItems.prefix(30)), more: { router.switchTab("konto") }, open: router.open)
                     TopRow(items: store.web.top, open: router.open)
+                    PosterRow(title: "Bald verfügbar", items: Array(store.web.all.filter { $0.soon == 1 }.sorted(by: byAdded).prefix(30)), open: router.open)
                     PosterRow(title: "Neu bei FilmFrei24", items: Array(store.web.films.sorted(by: byAdded).prefix(30)), more: { router.list("filme", s: "neu") }, open: router.open)
                     PosterRow(title: "Neue Folgen", items: Array(store.web.series.sorted(by: byAdded).prefix(30)), more: { router.list("serien", s: "neu") }, open: router.open)
                     PosterRow(title: "Am besten bewertet", items: Array(store.web.films.filter { $0.votes > 800 }.sorted { $0.rating > $1.rating }.prefix(30)),
