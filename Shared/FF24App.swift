@@ -28,6 +28,18 @@ final class Router: ObservableObject {
     func open(_ it: Item) { path.append(Route.title(it.key)) }
     func list(_ kind: String, g: String = "", s: String = "") { path.append(Route.list(kind: kind, g: g, s: s)) }
     func go(_ r: Route) { path.append(r) }
+
+    /// Direktlinks vom Apple-TV-Startbildschirm (Top Shelf): filmfrei24://title/f:ID bzw. filmfrei24://play/f:ID
+    func deep(_ u: URL) async {
+        guard u.scheme == "filmfrei24", let host = u.host, host == "title" || host == "play" else { return }
+        let key = u.lastPathComponent.removingPercentEncoding ?? u.lastPathComponent
+        for _ in 0..<60 where Store.shared.web.by[key] == nil { try? await Task.sleep(nanoseconds: 250_000_000) }   // Katalog lädt noch
+        guard let it = Store.shared.web.by[key] else { return }
+        play = nil
+        switchTab("home")
+        open(it)
+        if host == "play" { playItem(it) }
+    }
     func switchTab(_ t: String) { tab = t; path = NavigationPath() }
 
     func route(_ r: String) {
@@ -188,6 +200,7 @@ struct Root: View {
         .background(FF.bg.ignoresSafeArea())
         .fullScreenCover(item: $router.play) { PlayerView(req: $0) }
         .toast($router.toast)
+        .onOpenURL { u in Task { await router.deep(u) } }
         #else
         ZStack(alignment: .bottom) {
             stack {
