@@ -20,8 +20,12 @@ shoot() { # name devtype runtime app bundle screens...
     local base=${sc%%+*} args=(-ff24screen "${sc%%+*}")
     [[ $sc == *+focus ]] && args+=(-ff24focus)
     perl -e 'alarm 60; exec @ARGV' xcrun simctl launch "$dev" "$bid" "${args[@]}" >/dev/null
-    sleep 20
-    xcrun simctl io "$dev" screenshot "shots/$name-$sc.png" >/dev/null 2>&1
+    if [[ $sc == player* ]]; then
+      for t in 12 6 6 8; do sleep $t; xcrun simctl io "$dev" screenshot "shots/$name-$sc-$(date +%s).png" >/dev/null 2>&1; done
+    else
+      sleep 20
+      xcrun simctl io "$dev" screenshot "shots/$name-$sc.png" >/dev/null 2>&1
+    fi
     if [[ $sc == *+focus ]]; then
       # Fernbedienung nachahmen: Simulator nach vorn, Pfeil runter (Fokus auf erste Reihe), dann rechts
       perl -e 'alarm 10; exec @ARGV' osascript -e 'tell application "Simulator" to activate' -e 'delay 1' -e 'tell application "System Events" to key code 125' >/dev/null 2>&1 || echo "Tastendruck nicht moeglich"
@@ -38,8 +42,13 @@ TV=build/Build/Products/Release-appletvsimulator/FilmFrei24TV.app; [ "${ONLY:-al
 IOS=build/Build/Products/Release-iphonesimulator/FilmFrei24.app; [ "${ONLY:-alle}" = tv ] && IOS=/nix
 RTV=$(pick_rt tvOS); RIOS=$(pick_rt iOS)
 if [ -d "$TV" ]; then
-  shoot appletv "$(pick_dt 'Apple TV 4K (3rd' 'Apple TV 4K')" "$RTV" "$TV" com.filmfrei24.tv home home+focus detail-film detail-serie filme login; fi
+  shoot appletv "$(pick_dt 'Apple TV 4K (3rd' 'Apple TV 4K')" "$RTV" "$TV" com.filmfrei24.tv ${TVSCREENS:-home home+focus detail-film detail-serie filme login}; fi
 if [ -d "$IOS" ]; then
+  if [ -n "${IOSSCREENS:-}" ]; then
+    shoot iphone-16 "$(pick_dt 'iPhone 16 Pro' 'iPhone 16' 'iPhone 15')" "$RIOS" "$IOS" com.filmfrei24.app $IOSSCREENS
+    shoot ipad-mini "$(pick_dt 'iPad mini (A17' 'iPad mini')" "$RIOS" "$IOS" com.filmfrei24.app $IOSSCREENS
+    ls -la shots; exit 0
+  fi
   shoot iphone-se "$(pick_dt 'iPhone SE (3rd' 'iPhone SE')" "$RIOS" "$IOS" com.filmfrei24.app home detail-film detail-serie login
   shoot iphone-promax "$(pick_dt 'iPhone 16 Pro Max' 'Pro Max')" "$RIOS" "$IOS" com.filmfrei24.app home detail-film detail-serie
   shoot ipad-mini "$(pick_dt 'iPad mini (A17' 'iPad mini')" "$RIOS" "$IOS" com.filmfrei24.app home detail-film

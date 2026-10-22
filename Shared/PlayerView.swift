@@ -16,42 +16,44 @@ struct PlayerView: View {
     @State private var report = false
 
     var body: some View {
-        GeometryReader { geo in
-            let compact = geo.size.height < 480 && FF.scale == 1
-            ZStack {
-                Color.black.ignoresSafeArea()
-                if let p = m.player { VideoSurface(player: p, model: m).ignoresSafeArea() }
-                if !m.cue.isEmpty {
-                    VStack { Spacer()
-                        Text(m.cue).font(.inter(compact ? 17 : 22, .medium)).foregroundColor(.white).multilineTextAlignment(.center)
-                            .padding(.horizontal, 10).padding(.vertical, 4).background(Color.black.opacity(0.6))
-                            .padding(.bottom, (m.visible ? 120 : 50) * FF.scale)
-                    }.allowsHitTesting(false)
-                }
-                #if os(tvOS)
-                if m.error == nil && !report { RemoteCatcher(m: m).ignoresSafeArea() }
-                #endif
-                PlayerOverlay(m: m, compact: compact, onReport: { m.player?.pause(); report = true })
-                if let e = m.error {
-                    VStack(spacing: 16) {
-                        Text("Wiedergabe nicht möglich").font(.inter(22, .bold)).foregroundColor(.white)
-                        Text(e).font(.inter(15)).foregroundColor(Color(hex: 0xCFD3D8)).multilineTextAlignment(.center).frame(maxWidth: 520 * FF.scale)
-                        HStack(spacing: 10) {
-                            GreyButton(label: "Problem melden") { report = true }
-                            GreyButton(label: "Schließen", white: true) { close() }
-                        }
-                    }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.black.opacity(0.9))
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if let p = m.player { VideoSurface(player: p, model: m).ignoresSafeArea() }
+            #if os(tvOS)
+            if m.error == nil && !report { RemoteCatcher(m: m).ignoresSafeArea() }
+            #endif
+            // 2026-10-22: Oberfläche bleibt im sicheren Bereich (Dynamic Island, Statusleiste, Ecken, TV-Overscan)
+            GeometryReader { geo in
+                let L = PLayout(w: geo.size.width, h: geo.size.height)
+                ZStack {
+                    if !m.cue.isEmpty {
+                        VStack { Spacer()
+                            Text(m.cue).font(.inter(L.cueFont, .medium)).foregroundColor(.white).multilineTextAlignment(.center)
+                                .padding(.horizontal, 10).padding(.vertical, 4).background(Color.black.opacity(0.6))
+                                .padding(.bottom, m.visible ? L.cueUp : L.edge)
+                        }.frame(maxWidth: .infinity).allowsHitTesting(false)
+                    }
+                    PlayerOverlay(m: m, L: L, onReport: { m.player?.pause(); report = true })
+                    if let e = m.error {
+                        VStack(spacing: 16) {
+                            Text("Wiedergabe nicht möglich").font(.inter(22, .bold)).foregroundColor(.white)
+                            Text(e).font(.inter(15)).foregroundColor(Color(hex: 0xCFD3D8)).multilineTextAlignment(.center).frame(maxWidth: min(520 * FF.scale, L.w - 32))
+                            HStack(spacing: 10) {
+                                GreyButton(label: "Problem melden") { report = true }
+                                GreyButton(label: "Schließen", white: true) { close() }
+                            }
+                        }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.black.opacity(0.9).ignoresSafeArea())
+                    }
                 }
             }
         }
-        .ignoresSafeArea()
         #if os(iOS)
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
         #endif
         .task { m.onClose = { close() }; m.onReportFromRemote = { report = true }; await m.start(req) }
-        .onAppear { Orientation.landscape(true) }
-        .onDisappear { m.stop(); Orientation.landscape(false) }
+        .onAppear { Orientation.landscape(true); StatusBar.hidden(true) }
+        .onDisappear { m.stop(); Orientation.landscape(false); StatusBar.hidden(false) }
         .sheet(isPresented: $report) {
             ReportSheet(title: (m.info?.title ?? "") + ((m.info?.sub).map { " – \($0)" } ?? ""), url: reportURL, pos: m.player?.currentTime().seconds ?? 0)
         }
@@ -76,7 +78,48 @@ enum Orientation {
     }
 }
 
-// MARK: - Oberfläche (Maße = Web-CSS in px; tvOS × FF.scale wie Android TV)
+/// UIViewControllerBasedStatusBarAppearance = false (project.yml) → .statusBarHidden() von SwiftUI greift nicht,
+/// deshalb Statusleiste (Uhr/Akku) im Player direkt über UIApplication ausblenden.
+enum StatusBar {
+    static func hidden(_ on: Bool) {
+        #if os(iOS)
+        let app = UIApplication.shared
+        if app.responds(to: Selector(("setStatusBarHidden:"))) { app.setValue(on, forKey: "statusBarHidden") }
+        #endif
+    }
+}
+
+/// Maße nach echter Bildschirmgröße (vorher feste Web-px → im Hochformat Knöpfe außerhalb des Bildschirms).
+/// tvOS: alles × FF.scale, Ränder kommen aus dem Overscan-Sicherheitsbereich.
+struct PLayout {
+    let w: CGFloat, h: CGFloat
+    let k = FF.scale
+    #if os(tvOS)
+    let tv = true
+    #else
+    let tv = false
+    #endif
+    var portrait: Bool { h > w }
+    /// Handy (quer oder hochkant)
+    var phone: Bool { !tv && min(w, h) < 500 }
+    var edge: CGFloat { tv ? 0 : (phone ? 12 : 24) }
+    var topBtn: CGFloat { tv ? 52 * k : (phone ? 40 : 46) }
+    var topIcon: CGFloat { tv ? 28 * k : (phone ? 22 : 25) }
+    var titleFont: CGFloat { tv ? 22 : (phone ? 16 : 19) }
+    var subFont: CGFloat { tv ? 16 : (phone ? 13 : 15) }
+    var playSize: CGFloat { tv ? 54 * k : (phone ? 52 : 68) }
+    var seekSize: CGFloat { phone ? 38 : 48 }
+    var midGap: CGFloat { phone ? min(56, w * 0.1) : 76 }
+    var timeFont: CGFloat { tv ? 16 : (phone ? 13 : 15) }
+    var btnFont: CGFloat { tv ? 17 : (phone ? 14 : 16) }
+    var btnH: CGFloat { tv ? 46 * k : (phone ? 40 : 44) }
+    var cueFont: CGFloat { tv ? 24 : (phone ? 17 : 22) }
+    var cueUp: CGFloat { tv ? 110 * k : (portrait ? 110 : (phone ? 70 : 96)) }
+    /// Abstand des Nächste-Folge-/Intro-Knopfs vom unteren Rand (über der Leiste)
+    var overBar: CGFloat { tv ? 70 * k : (portrait ? 96 : (phone ? 58 : 76)) }
+}
+
+// MARK: - Oberfläche
 
 private extension View {
     /// Antippen nur auf iPhone/iPad – auf Apple TV gibt es nur die Fernbedienung (sonst stiehlt SwiftUI den Fokus).
@@ -91,181 +134,180 @@ private extension View {
 
 struct PlayerOverlay: View {
     @ObservedObject var m: PlayerModel
-    let compact: Bool
+    let L: PLayout
     let onReport: () -> Void
-    private let k = FF.scale
+    private var k: CGFloat { L.k }
     private var key: Bool { m.keyMode }
 
     var body: some View {
         ZStack {
             // Doppeltipp links/rechts = 10 s, einfacher Tipp = Steuerung ein/aus (iPhone/iPad)
             #if os(iOS)
-            Color.clear.contentShape(Rectangle())
-                .gesture(SpatialTapGesture(count: 2).onEnded { v in m.touched(); m.seekBy(v.location.x < UIScreen.main.bounds.width / 2 ? -10 : 10) }
-                    .exclusively(before: TapGesture().onEnded { m.touched(); m.visible.toggle() }))
+            Color.clear.contentShape(Rectangle()).ignoresSafeArea()
+                .gesture(SpatialTapGesture(count: 2).onEnded { v in m.touched(); m.seekBy(v.location.x < L.w / 2 ? -10 : 10) }
+                    .exclusively(before: TapGesture().onEnded { m.tapScreen() }))
             #endif
 
-            // Pause-Infos wie .plr.pl .pause
-            if m.pausedLong, let i = m.info {
-                LinearGradient(stops: [.init(color: .black.opacity(0.8), location: 0), .init(color: .black.opacity(0.25), location: 0.6), .init(color: .clear, location: 1)],
-                               startPoint: .leading, endPoint: .trailing).allowsHitTesting(false)
-                VStack(alignment: .leading, spacing: 0) {
-                    Spacer()
-                    if !i.logo.isEmpty {
-                        Img(url: i.logo, mode: .fit).frame(maxWidth: 380 * k, maxHeight: 150 * k, alignment: .bottomLeading).padding(.bottom, 16 * k)
-                    } else {
-                        Text(i.title).font(.inter(34, .heavy)).foregroundColor(.white).padding(.bottom, 10 * k)
-                    }
-                    if i.type == "s" { Text(i.sub).font(.inter(18, .bold)).foregroundColor(.white).padding(.bottom, 10 * k) }
-                    if !i.desc.isEmpty { Text(i.desc).font(.inter(16)).foregroundColor(Color(hex: 0xE7EAED)).lineLimit(4).lineSpacing(5) }
-                }.frame(maxWidth: 560 * k, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, (compact ? 28 : 48) * k).padding(.bottom, (compact ? 100 : 140) * k).allowsHitTesting(false).transition(.opacity)
-            }
+            // Pause-Infos (nur wenn Steuerung weg ist, nie über den Knöpfen)
+            if m.pausedLong && !m.visible, let i = m.info { pauseInfo(i).transition(.opacity) }
 
-            controls.opacity(m.visible ? 1 : 0).allowsHitTesting(m.visible).animation(.easeInOut(duration: 0.3), value: m.visible)
+            controls.opacity(m.visible ? 1 : 0).allowsHitTesting(m.visible)
 
             if m.loading && m.error == nil {
-                ProgressView().tint(.white).scaleEffect(1.8 * k).allowsHitTesting(false)
+                ProgressView().tint(.white).scaleEffect(1.6 * k).allowsHitTesting(false)
             }
 
-            // Nächste-Folge-Karte / Intro überspringen (auch bei ausgeblendeter Steuerung)
+            // Nächste Folge / Intro überspringen (auch bei ausgeblendeter Steuerung)
             VStack { Spacer(); HStack { Spacer()
-                if m.showNext, let n = m.info?.next { nextCard(n) }
+                if m.showNext && m.info?.next != nil { nextButton }
                 else if m.showSkip { skipButton }
             } }
-            .padding(.trailing, (compact ? 16 : 28) * k).padding(.bottom, (compact ? 96 : 110) * k)
+            .padding(.trailing, L.edge).padding(.bottom, m.visible ? L.overBar : L.edge + 8)
         }
+        .animation(.easeInOut(duration: 0.3), value: m.visible)
+        .animation(.easeInOut(duration: 0.4), value: m.pausedLong)
+    }
+
+    func pauseInfo(_ i: PlayInfo) -> some View {
+        let maxW = min((L.tv ? 620 : 520) * k, L.w * (L.portrait ? 0.92 : 0.55))
+        return ZStack(alignment: .bottomLeading) {
+            LinearGradient(stops: [.init(color: .black.opacity(0.85), location: 0), .init(color: .black.opacity(0.3), location: 0.6), .init(color: .clear, location: 1)],
+                           startPoint: L.portrait ? .bottom : .leading, endPoint: L.portrait ? .top : .trailing).ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 0) {
+                if !i.logo.isEmpty {
+                    Img(url: i.logo, mode: .fit).frame(maxWidth: min(360 * k, maxW), maxHeight: (L.phone ? 90 : 140) * k, alignment: .bottomLeading).padding(.bottom, 14 * k)
+                } else {
+                    Text(i.title).font(.inter(L.phone ? 26 : 34, .heavy)).foregroundColor(.white).lineLimit(2).minimumScaleFactor(0.7).padding(.bottom, 10 * k)
+                }
+                if i.type == "s" { Text(i.sub).font(.inter(L.phone ? 15 : 18, .bold)).foregroundColor(.white).lineLimit(1).padding(.bottom, 8 * k) }
+                if !i.desc.isEmpty {
+                    Text(i.desc).font(.inter(L.phone ? 14 : 16)).foregroundColor(Color(hex: 0xE7EAED)).lineLimit(L.phone ? 3 : 4).lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }.frame(maxWidth: maxW, alignment: .leading)
+                .padding(.leading, L.tv ? 0 : L.edge + 12).padding(.bottom, L.tv ? 20 * k : L.edge + 24)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading).allowsHitTesting(false)
     }
 
     // ── Steuerung ──
     var controls: some View {
         ZStack {
             VStack(spacing: 0) {
-                LinearGradient(colors: [.black.opacity(0.72), .clear], startPoint: .top, endPoint: .bottom).frame(height: (compact ? 100 : 130) * k)
+                LinearGradient(colors: [.black.opacity(0.75), .clear], startPoint: .top, endPoint: .bottom).frame(height: L.topBtn + 70 * k)
                 Spacer()
-                LinearGradient(colors: [.clear, .black.opacity(0.78)], startPoint: .top, endPoint: .bottom).frame(height: (compact ? 110 : 140) * k)
-            }.allowsHitTesting(false)
+                LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom).frame(height: L.overBar + 60 * k)
+            }.ignoresSafeArea().allowsHitTesting(false)
 
             // oben: Titel mittig, Knöpfe rechts (Melden, Untertitel, AirPlay, Schließen)
-            VStack { ZStack(alignment: .top) {
-                VStack(spacing: 2 * k) {
-                    Text(m.info?.title ?? "").font(.inter(compact ? 16 : 20, .bold)).lineLimit(1)
-                    if let s = m.info?.sub, !s.isEmpty { Text(s).font(.inter(compact ? 13 : 15)).foregroundColor(Color(hex: 0xD4D8DC)).lineLimit(1) }
-                }.foregroundColor(.white).frame(maxWidth: 0.52 * screenW).padding(.top, (compact ? 14 : 22) * k)
-                HStack(spacing: 6 * k) {
-                    Spacer()
-                    roundBtn(.rep, "Problem melden") { WebIcon.flag } action: { onReport() }
-                    if m.hasCc { roundBtn(.cc, "Untertitel", active: m.ccOn) { WebIcon.cc } action: { m.toggleCc() } }
-                    #if os(iOS)
-                    AirPlayButton().frame(width: (compact ? 40 : 48), height: (compact ? 40 : 48))
-                    #endif
-                    roundBtn(.close, "Schließen") { WebIcon.x } action: { m.onClose?() }
-                }.padding(.horizontal, (compact ? 8 : 28) * k).padding(.top, (compact ? 8 : 20) * k)
-            }; Spacer() }
+            VStack { topBar; Spacer() }.padding(.horizontal, L.edge).padding(.top, L.tv ? 0 : (L.phone ? 6 : 14))
 
-            // Mitte: 10 zurück / Play / 10 vor
-            HStack(spacing: (compact ? 44 : 96) * k) {
-                midBtn(.rw, (compact ? 44 : 60) * k) { s in WebIcon.rw.frame(width: s, height: s) } action: { m.seekBy(-10) }
-                midBtn(.play, (compact ? 62 : 96) * k) { s in
+            // Mitte: iPhone/iPad 10 zurück / Play / 10 vor, Fernseher nur Play/Pause (Spulen per Fernbedienung)
+            HStack(spacing: L.midGap) {
+                if !L.tv { midBtn(.rw, L.seekSize) { s in WebIcon.rw.frame(width: s, height: s) } action: { m.seekBy(-10) } }
+                midBtn(.play, L.playSize) { s in
                     Group { if m.loading { Color.clear } else if m.playing { WebIcon.pause } else { WebIcon.play } }.frame(width: s, height: s)
                 } action: { m.toggle() }
-                midBtn(.ff, (compact ? 44 : 60) * k) { s in WebIcon.ff.frame(width: s, height: s) } action: { m.seekBy(10) }
+                if !L.tv { midBtn(.ff, L.seekSize) { s in WebIcon.ff.frame(width: s, height: s) } action: { m.seekBy(10) } }
             }
 
-            // unten: Zeit | Leiste | Rest | Nächste Folge
-            VStack { Spacer()
-                HStack(spacing: (compact ? 10 : 16) * k) {
+            // unten: Zeit | Leiste | Rest  (+ Nächste Folge)
+            VStack(spacing: 10) { Spacer()
+                if let n = m.info?.next, !m.showNext, L.portrait {
+                    HStack { Spacer(); nextSmall(n) }
+                }
+                HStack(spacing: (L.phone ? 10 : 16) * k) {
                     let shown = m.scrub ?? m.pos
-                    Text(ptime(shown)).font(.inter(compact ? 13 : 15, .semibold)).monospacedDigit()
+                    Text(ptime(shown)).font(.inter(L.timeFont, .semibold)).monospacedDigit().lineLimit(1).fixedSize()
                     SeekBar(m: m, shown: shown)
-                    Text("-" + ptime(max(0, m.dur - shown))).font(.inter(compact ? 13 : 15, .semibold)).monospacedDigit()
-                    if let n = m.info?.next, !m.showNext {
-                        let f = key && m.focus == .next
-                        HStack(spacing: 8 * k) {
-                            Text("Nächste Folge").font(.inter(compact ? 13 : 16, .bold))
-                            WebIcon.next.frame(width: 20 * k, height: 20 * k)
-                        }.foregroundColor(f ? FF.dark : .white)
-                            .padding(.horizontal, (compact ? 10 : 16) * k).padding(.vertical, (compact ? 8 : 10) * k)
-                            .background(RoundedRectangle(cornerRadius: 8 * k).fill(f ? Color.white : Color(hex: 0x33373D, alpha: 0.85)))
-                            .scaleEffect(f ? 1.06 : 1).tap { m.playNext() }.accessibilityLabel("Nächste Folge S\(n.season) F\(n.ep)")
-                    }
-                }.foregroundColor(.white)
-                .padding(.horizontal, (compact ? 14 : 28) * k).padding(.bottom, (compact ? 14 : 24) * k)
-            }
+                    Text("-" + ptime(max(0, m.dur - shown))).font(.inter(L.timeFont, .semibold)).monospacedDigit().lineLimit(1).fixedSize()
+                    if let n = m.info?.next, !m.showNext, !L.portrait { nextSmall(n) }
+                }
+            }.foregroundColor(.white)
+                .padding(.horizontal, L.edge + (L.tv ? 0 : 4)).padding(.bottom, L.tv ? 0 : (L.phone ? 4 : 12))
         }
     }
 
-    var screenW: CGFloat {
-        #if os(iOS)
-        UIScreen.main.bounds.width
-        #else
-        1920
-        #endif
+    var topBar: some View {
+        let n = 2 + (m.hasCc ? 1 : 0) + (L.tv ? 0 : 1)
+        let side = CGFloat(n) * L.topBtn + CGFloat(n - 1) * 6 * k
+        return ZStack {
+            VStack(spacing: 2 * k) {
+                Text(m.info?.title ?? "").font(.inter(L.titleFont, .bold)).lineLimit(1).minimumScaleFactor(0.8)
+                if let s = m.info?.sub, !s.isEmpty { Text(s).font(.inter(L.subFont)).foregroundColor(Color(hex: 0xD4D8DC)).lineLimit(1) }
+            }.foregroundColor(.white)
+                // Hochformat: Titel links neben den Knöpfen, quer: mittig mit gleichem Abstand zu beiden Seiten
+                .frame(maxWidth: .infinity, alignment: L.portrait ? .leading : .center)
+                .padding(.leading, L.portrait ? 4 : side + 12).padding(.trailing, side + 12)
+            HStack(spacing: 6 * k) {
+                Spacer()
+                roundBtn(.rep, "Problem melden") { WebIcon.flag } action: { onReport() }
+                if m.hasCc { roundBtn(.cc, "Untertitel", active: m.ccOn) { WebIcon.cc } action: { m.toggleCc() } }
+                #if os(iOS)
+                AirPlayButton().frame(width: L.topBtn, height: L.topBtn)
+                #endif
+                roundBtn(.close, "Schließen") { WebIcon.x } action: { m.onClose?() }
+            }
+        }.frame(minHeight: L.topBtn)
+    }
+
+    func nextSmall(_ n: (season: Int, ep: Int, title: String, thumb: String)) -> some View {
+        let f = key && m.focus == .next
+        return HStack(spacing: 8 * k) {
+            Text("Nächste Folge").font(.inter(L.btnFont - 1, .bold)).lineLimit(1).fixedSize()
+            WebIcon.next.frame(width: 18 * k, height: 18 * k)
+        }.foregroundColor(f ? FF.dark : .white)
+            .padding(.horizontal, 14 * k).frame(height: L.btnH - 4 * k)
+            .background(RoundedRectangle(cornerRadius: 8 * k).fill(f ? Color.white : Color(hex: 0x33373D, alpha: 0.85)))
+            .scaleEffect(f ? 1.06 : 1).tap { m.playNext() }.accessibilityLabel("Nächste Folge S\(n.season) F\(n.ep)")
     }
 
     func roundBtn<I: View>(_ f: PF, _ label: String, active: Bool = false, @ViewBuilder icon: () -> I, action: @escaping () -> Void) -> some View {
         let on = key && m.focus == f
-        let s = (compact ? 40 : 48) * k
-        return icon().frame(width: (compact ? 24 : 28) * k, height: (compact ? 24 : 28) * k)
+        return icon().frame(width: L.topIcon, height: L.topIcon)
             .foregroundColor(on ? FF.dark : (active ? FF.blue : .white))
-            .frame(width: s, height: s).background(Circle().fill(on ? Color.white : Color.clear))
-            .scaleEffect(on ? 1.12 : 1).animation(.easeOut(duration: 0.15), value: on)
+            .frame(width: L.topBtn, height: L.topBtn).background(Circle().fill(on ? Color.white : Color.clear))
+            .scaleEffect(on ? 1.1 : 1).animation(.easeOut(duration: 0.15), value: on)
             .tap(action).accessibilityLabel(label)
     }
 
+    /// Ohne Kreis/Umrandung; Fernseher-Fokus = etwas größer + leuchtender Schatten.
     func midBtn<I: View>(_ f: PF, _ s: CGFloat, @ViewBuilder icon: (CGFloat) -> I, action: @escaping () -> Void) -> some View {
         let on = key && m.focus == f
-        return icon(s).foregroundColor(.white).shadow(color: .black.opacity(0.5), radius: 10, y: 2)
+        return icon(s).foregroundColor(.white)
+            .shadow(color: on ? .white.opacity(0.55) : .black.opacity(0.5), radius: on ? 14 * k : 10, y: on ? 0 : 2)
             .padding(10 * k)
-            .background(Circle().fill(Color.white.opacity(on ? 0.2 : 0)))
-            .overlay(Circle().stroke(Color.white, lineWidth: on ? 2 * k : 0))
-            .scaleEffect(on ? 1.18 : 1).animation(.easeOut(duration: 0.15), value: on)
+            .scaleEffect(on ? 1.14 : 1).animation(.easeOut(duration: 0.15), value: on)
+            .tap(action)
+    }
+
+    /// Weißer Knopf unten rechts (Intro/Rückblick überspringen, Nächste Folge) – Text nie umbrechen.
+    func whiteButton(_ label: String, icon: some View, focused: Bool, progress: Double?, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 10 * k) {
+            Text(label).font(.inter(L.btnFont, .bold)).lineLimit(1).fixedSize()
+            icon.frame(width: 18 * k, height: 18 * k)
+        }.foregroundColor(FF.dark).padding(.horizontal, 18 * k).frame(height: L.btnH)
+            .background(
+                ZStack(alignment: .leading) {
+                    Color.white.opacity(focused ? 1 : 0.92)
+                    if let p = progress { GeometryReader { g in Color(hex: 0xCFD6DE).frame(width: g.size.width * p) }.animation(.linear(duration: 1), value: p) }
+                }.clipShape(RoundedRectangle(cornerRadius: 8 * k))
+            )
+            .overlay(RoundedRectangle(cornerRadius: 8 * k).stroke(FF.blue, lineWidth: focused && key ? 3 * k : 0))
+            .shadow(color: .black.opacity(0.45), radius: 12 * k, y: 6 * k)
+            .scaleEffect(focused && key ? 1.07 : 1).animation(.easeOut(duration: 0.15), value: focused)
+            .fixedSize()
             .tap(action)
     }
 
     var skipButton: some View {
-        let on = m.focus == .skip && (key || !m.visible)
-        return HStack(spacing: 8 * k) {
-            Text(m.skipLabel).font(.inter(compact ? 15 : 16, .bold))
-            WebIcon.skip.frame(width: 20 * k, height: 20 * k)
-        }.foregroundColor(FF.dark).padding(.horizontal, (compact ? 16 : 20) * k).frame(minHeight: (compact ? 42 : 46) * k)
-            .background(RoundedRectangle(cornerRadius: 8 * k).fill(Color.white.opacity(on ? 1 : 0.94)))
-            .overlay(RoundedRectangle(cornerRadius: 8 * k).stroke(FF.blue, lineWidth: on && key ? 3 * k : 0))
-            .shadow(color: .black.opacity(0.45), radius: 12 * k, y: 6 * k)
-            .scaleEffect(on && key ? 1.08 : 1).animation(.easeOut(duration: 0.15), value: on)
-            .tap { m.skipIntro() }
+        whiteButton(m.skipLabel, icon: WebIcon.skip, focused: m.focus == .skip && (key || !m.visible), progress: nil) { m.skipIntro() }
     }
 
-    func nextCard(_ n: (season: Int, ep: Int, title: String, thumb: String)) -> some View {
-        let on = m.focus == .nextGo && (key || !m.visible)
-        let prog = m.countdown >= 0 ? Double(10 - m.countdown) / 10 : 0
-        return VStack(spacing: 0) {
-            if !compact {
-                ZStack(alignment: .bottomLeading) {
-                    Color(hex: 0x111111)
-                    if !n.thumb.isEmpty { Img(url: n.thumb) }
-                    bar(prog)
-                }.aspectRatio(16 / 9, contentMode: .fit).clipped()
-            } else { bar(prog) }
-            HStack(spacing: 12 * k) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("NÄCHSTE FOLGE").font(.inter(12, .bold)).kerning(0.7 * k).foregroundColor(FF.text2)
-                    Text("S\(n.season) F\(n.ep)" + (n.title.isEmpty ? "" : " · \(n.title)")).font(.inter(16, .bold)).foregroundColor(.white).lineLimit(1)
-                }.frame(maxWidth: .infinity, alignment: .leading)
-                Text("Abspielen").font(.inter(15, .bold)).foregroundColor(FF.dark).padding(.horizontal, 16 * k).frame(minHeight: 42 * k)
-                    .background(RoundedRectangle(cornerRadius: 8 * k).fill(Color.white))
-                    .overlay(RoundedRectangle(cornerRadius: 8 * k).stroke(FF.blue, lineWidth: on && key ? 3 * k : 0))
-                    .scaleEffect(on && key ? 1.06 : 1).tap { m.playNext() }
-            }.padding(.horizontal, 14 * k).padding(.vertical, 12 * k)
-        }.frame(width: (compact ? 300 : 380) * k)
-            .background(Color(hex: 0x191E25, alpha: 0.97)).clipShape(RoundedRectangle(cornerRadius: 10 * k))
-            .shadow(color: .black.opacity(0.6), radius: 20 * k, y: 10 * k)
-    }
-
-    func bar(_ p: Double) -> some View {
-        GeometryReader { g in
-            ZStack(alignment: .leading) { Color.white.opacity(0.25); FF.blue.frame(width: g.size.width * p) }
-        }.frame(height: 4 * k)
+    /// 2026-10-22 User: nur Knopf „Nächste Folge“, ohne Infos/Bild zur Folge; Countdown am Ende als Füllung.
+    var nextButton: some View {
+        let label = m.countdown >= 0 ? "Nächste Folge in \(m.countdown)" : "Nächste Folge"
+        let prog: Double? = m.countdown >= 0 ? Double(5 - m.countdown) / 5 : nil
+        return whiteButton(label, icon: WebIcon.next, focused: m.focus == .nextGo && (key || !m.visible), progress: prog) { m.playNext() }
     }
 }
 
@@ -523,7 +565,7 @@ final class PlayerModel: NSObject, ObservableObject {
     @Published var skipLabel = "Intro überspringen"
     private var skipTo = 0.0
     @Published var showNext = false
-    /// -1 = kein Countdown; 10…0 am Folgenende (blauer Balken wie Web)
+    /// -1 = kein Countdown; 5…0 ab Abspann (User 2026-10-22: nach ~5 s automatisch nächste Folge)
     @Published var countdown = -1
     // eigene Steuerung
     @Published var visible = true
@@ -550,23 +592,33 @@ final class PlayerModel: NSObject, ObservableObject {
     private var nextDismissed = false
     private var going = false
     private var scrubTask: Task<Void, Never>?
-    private var pauseTask: Task<Void, Never>?
+    private var uiTimer: Timer?
 
     func start(_ req: PlayRequest) async {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         try? AVAudioSession.sharedInstance().setActive(true)
         setupRemoteCommands()
+        uiTimer?.invalidate()
+        uiTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in Task { @MainActor in self?.uiTick() } }
         if let t = req.trailer {
             info = nil
             play(url: t.url, title: t.title, poster: "", start: 0)
             return
         }
         await load(type: req.type, id: req.itemId, season: req.season, ep: req.ep, start: req.start)
+        // nur Simulator-Fotos (DebugScreen)
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("player-film") { try? await Task.sleep(nanoseconds: 2_000_000_000); visible = true; lastInput = Date().addingTimeInterval(3600) }
+        if args.contains("player-pause") { try? await Task.sleep(nanoseconds: 3_000_000_000); player?.pause() }
+        if args.contains("player-ende") {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if let i = info { seekTo((i.credits ?? (dur - 25)) + 0.5) }
+        }
     }
 
     func load(type: String, id: String, season: Int, ep: Int, start: Double) async {
         loading = true; error = nil; showNext = false; showSkip = false; nextDismissed = false; cues = []; cue = ""
-        countdown = -1; nextTimer?.invalidate(); scrub = nil; pausedLong = false; focus = .play; touchedKey(false)
+        stopCountdown(); visible = true; scrub = nil; pausedLong = false; focus = .play; touchedKey(false)
         var o = await API.getObj("/beta/api.php?q=play&type=\(type)&id=" + API.enc(id) + (type == "s" ? "&season=\(season)&ep=\(ep)" : ""))
         #if os(iOS)
         // 2026-10-22: heruntergeladen -> lokale Datei; ohne Internet komplett aus den gespeicherten Daten
@@ -668,11 +720,8 @@ final class PlayerModel: NSObject, ObservableObject {
         if s == .waitingToPlayAtSpecifiedRate { loading = true } else if s == .playing { loading = false }
         if was != playing {
             if !playing { save(force: true) }
-            // wie Web: nach 5 s Pause Logo/Titel/Beschreibung
-            pauseTask?.cancel(); pausedLong = false
-            if s == .paused && error == nil {
-                pauseTask = Task { try? await Task.sleep(nanoseconds: 5_000_000_000); if !Task.isCancelled && !self.playing { self.pausedLong = true } }
-            }
+            pausedLong = false
+            if !playing { visible = true }
             lastInput = Date(); updateNowPlaying()
         }
     }
@@ -688,11 +737,6 @@ final class PlayerModel: NSObject, ObservableObject {
         // Forced-Untertitel
         let c = ccOn ? (cues.first { t >= $0.0 && t <= $0.1 }?.2 ?? "") : ""
         if c != cue { cue = c }
-        // Steuerung nach 3 s ausblenden (Fernbedienung 5 s), nicht bei Pause/Spulen
-        if visible && playing && scrub == nil && Date().timeIntervalSince(lastInput) > (keyMode ? 5 : 3) {
-            visible = false
-            if focus != .skip && focus != .nextGo { focus = .play }
-        }
         guard let i = info else { return }
         // Rückblick vor Intro (wie Website): Knopf nur im erkannten Abschnitt, springt an sein Ende
         let wasSkip = showSkip
@@ -702,20 +746,49 @@ final class PlayerModel: NSObject, ObservableObject {
         // Knopf erscheint -> Fokus darauf, OK drückt ihn (nicht Pause)
         if showSkip && !wasSkip && (!visible || focus == .play) { focus = .skip }
         if !showSkip && focus == .skip { focus = .play }
-        if i.next != nil, dur > 120, countdown < 0 {
+        if i.next != nil, dur > 120 {
             let creditsAt = i.credits ?? (dur - 25)
             let inCredits = t >= creditsAt
-            if inCredits && !showNext && !nextDismissed { showNext = true; if !visible || focus == .play || focus == .skip { focus = .nextGo } }
-            if !inCredits { nextDismissed = false; if showNext { showNext = false; if focus == .nextGo { focus = .play } } }
+            if inCredits && !showNext && !nextDismissed {
+                showNext = true; if !visible || focus == .play || focus == .skip { focus = .nextGo }
+                if playing { startCountdown() }
+            }
+            if !inCredits {
+                nextDismissed = false
+                if showNext { showNext = false; stopCountdown(); if focus == .nextGo { focus = .play } }
+            }
         }
         if Date().timeIntervalSince(lastSave) > 10 { save(force: false); updateNowPlaying() }
     }
 
-    /// Ende: wie Web Karte + 10 s Countdown, dann nächste Folge; ohne nächste Folge schließen.
-    private func ended() {
-        save(force: true)
-        guard info?.next != nil else { onClose?(); return }
-        showNext = true; showSkip = false; focus = .nextGo; countdown = 10
+    /// Steuerung ein-/ausblenden + Pause-Infos (läuft auch bei Pause, der Zeit-Beobachter nicht).
+    /// Läuft: nach 3 s (Fernbedienung 5 s) weg. Pause: nach 6 s ohne Eingabe Steuerung weg, Logo/Titel/Beschreibung da.
+    private func uiTick() {
+        guard player != nil, error == nil, scrub == nil, !loading else { return }
+        let idle = Date().timeIntervalSince(lastInput)
+        if playing {
+            if visible && idle > (keyMode ? 5 : 3) { hideControls() }
+        } else if countdown < 0, info != nil, idle > 6, !pausedLong {
+            hideControls(); pausedLong = true
+        }
+    }
+
+    private func hideControls() {
+        visible = false
+        if focus != .skip && focus != .nextGo { focus = .play }
+    }
+
+    /// iPhone/iPad: Tipp aufs Bild
+    func tapScreen() {
+        touched()
+        if pausedLong { pausedLong = false; visible = true } else { visible.toggle() }
+    }
+
+    func stopCountdown() { nextTimer?.invalidate(); nextTimer = nil; countdown = -1 }
+
+    private func startCountdown() {
+        guard countdown < 0, info?.next != nil else { return }
+        countdown = 5
         nextTimer?.invalidate()
         nextTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] tm in
             Task { @MainActor in
@@ -726,14 +799,23 @@ final class PlayerModel: NSObject, ObservableObject {
         }
     }
 
+    /// Ende: Knopf „Nächste Folge“ + Countdown (falls nicht schon im Abspann gestartet); ohne nächste Folge schließen.
+    private func ended() {
+        save(force: true)
+        guard info?.next != nil else { onClose?(); return }
+        showNext = true; showSkip = false; focus = .nextGo; nextDismissed = false
+        if countdown < 0 { startCountdown() }
+    }
+
     // ── Bedienung ──
     func touched() { keyMode = false; lastInput = Date() }
-    private func touchedKey(_ k: Bool) { keyMode = k; lastInput = Date() }
-    private func show(_ f: PF? = nil) { visible = true; if let f { focus = f }; lastInput = Date() }
+    private func touchedKey(_ k: Bool) { keyMode = k; lastInput = Date(); pausedLong = false }
+    private func show(_ f: PF? = nil) { visible = true; pausedLong = false; if let f { focus = f }; lastInput = Date() }
 
     func toggle() {
         guard let p = player else { return }
-        if countdown >= 0 { return }
+        // Pause während des Countdowns = nicht automatisch weiter
+        if countdown >= 0 { stopCountdown(); if p.timeControlStatus != .paused { p.pause() }; lastInput = Date(); return }
         if p.timeControlStatus == .paused { p.play() } else { p.pause() }
         lastInput = Date()
     }
@@ -767,7 +849,7 @@ final class PlayerModel: NSObject, ObservableObject {
     func playNext() {
         guard let i = info, let n = i.next, !going else { return }
         going = true
-        save(force: true); nextTimer?.invalidate(); countdown = -1
+        save(force: true); stopCountdown()
         Task { await load(type: "s", id: i.id, season: n.season, ep: n.ep, start: 0); going = false }
     }
 
@@ -794,7 +876,11 @@ final class PlayerModel: NSObject, ObservableObject {
     var onReportFromRemote: (() -> Void)?
 
     private func move(_ k: Key) {
+        #if os(tvOS)
+        let mid: [PF] = [.play]
+        #else
         let mid: [PF] = [.rw, .play, .ff]
+        #endif
         let row = topRow().contains(focus) ? topRow() : mid.contains(focus) ? mid : bottomRow().contains(focus) ? bottomRow() : [focus]
         switch k {
         case .left, .right:
@@ -824,7 +910,7 @@ final class PlayerModel: NSObject, ObservableObject {
         case .back:
             if scrub != nil { scrubTask?.cancel(); scrub = nil }
             else if visible { visible = false; if let o = overlay() { focus = o } }
-            else if showNext && countdown < 0 { showNext = false; nextDismissed = true; focus = .play }
+            else if showNext { stopCountdown(); showNext = false; nextDismissed = true; focus = .play }
             else { onClose?() }
         case .ok:
             if !visible {
@@ -850,7 +936,7 @@ final class PlayerModel: NSObject, ObservableObject {
 
     func stop() {
         save(force: true)
-        nextTimer?.invalidate(); scrubTask?.cancel(); pauseTask?.cancel()
+        nextTimer?.invalidate(); scrubTask?.cancel(); uiTimer?.invalidate(); uiTimer = nil
         teardownObservers()
         player?.pause()
         player?.replaceCurrentItem(with: nil)

@@ -5,6 +5,9 @@ on:
       only:
         description: "tv | ios | alle"
         default: "alle"
+      screens:
+        description: "nur diese Ansichten (leer = Standard), z. B. player-film player-pause player-ende"
+        default: ""
 jobs:
   screens:
     strategy:
@@ -27,7 +30,7 @@ jobs:
       - name: Fotos
         if: inputs.only == 'alle' || inputs.only == matrix.teil
         run: tools/screens.sh
-        env: { ONLY: "${{ matrix.teil }}" }
+        env: { ONLY: "${{ matrix.teil }}", TVSCREENS: "${{ inputs.screens }}", IOSSCREENS: "${{ inputs.screens }}" }
       - uses: actions/upload-artifact@v4
         if: always()
         with:

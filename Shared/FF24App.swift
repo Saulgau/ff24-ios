@@ -323,6 +323,11 @@ enum DebugScreen {
             if let it = store.web.top.first(where: { !$0.isSeries && store.web.trailers[$0.id] != nil }) ?? store.web.films.first { router.open(it) }
         case "detail-serie":
             if let it = store.web.top.first(where: { $0.isSeries }) ?? store.web.series.first { router.open(it) }
+        // Player-Fotos: -ff24screen player-film|player-pause (Film) bzw. player-ende (Serie, springt in den Abspann)
+        case "player-film", "player-pause":
+            if let it = store.web.top.first(where: { !$0.isSeries }) ?? store.web.films.first { router.play = PlayRequest(type: "f", itemId: it.id, start: 300) }
+        case "player-ende":
+            if let it = store.web.top.first(where: { $0.isSeries }) ?? store.web.series.first { router.play = PlayRequest(type: "s", itemId: it.id, season: 1, ep: 1, start: 0) }
         default: break
         }
     }
