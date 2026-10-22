@@ -235,6 +235,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
         if identifier == Downloads.sessionId { Downloads.shared.bgCompletion = completionHandler } else { completionHandler() }
     }
+
+    /// Player sperrt das iPhone auf Querformat (Orientation.landscape); sonst gilt Info.plist.
+    static var orientationLock: UIInterfaceOrientationMask = .all
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        AppDelegate.orientationLock
+    }
 }
 
 // MARK: - Oberfläche

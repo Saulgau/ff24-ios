@@ -73,6 +73,15 @@ enum Orientation {
         #if os(iOS)
         guard UIDevice.current.userInterfaceIdiom == .phone,
               let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene else { return }
+        // 2026-10-22: requestGeometryUpdate allein drehte oft nicht (iPhone blieb hochkant) → Ausrichtung über AppDelegate sperren
+        AppDelegate.orientationLock = on ? .landscape : .allButUpsideDown
+        for w in scene.windows {
+            var vc = w.rootViewController
+            while let c = vc {
+                c.setNeedsUpdateOfSupportedInterfaceOrientations()
+                vc = c.presentedViewController
+            }
+        }
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: on ? .landscape : .portrait)) { _ in }
         #endif
     }
@@ -608,12 +617,11 @@ final class PlayerModel: NSObject, ObservableObject {
         await load(type: req.type, id: req.itemId, season: req.season, ep: req.ep, start: req.start)
         // nur Simulator-Fotos (DebugScreen)
         let args = ProcessInfo.processInfo.arguments
-        if args.contains("player-film") { try? await Task.sleep(nanoseconds: 2_000_000_000); visible = true; lastInput = Date().addingTimeInterval(3600) }
-        if args.contains("player-pause") { try? await Task.sleep(nanoseconds: 3_000_000_000); player?.pause() }
-        if args.contains("player-ende") {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            if let i = info { seekTo((i.credits ?? (dur - 25)) + 0.5) }
-        }
+        guard args.contains(where: { $0.hasPrefix("player-") }) else { return }
+        for _ in 0..<60 where dur <= 0 || loading { try? await Task.sleep(nanoseconds: 500_000_000) }
+        if args.contains("player-film") { debugHold = true; visible = true }
+        if args.contains("player-pause") { player?.pause() }
+        if args.contains("player-ende"), let i = info { seekTo((i.credits ?? (dur - 25)) + 0.5) }
     }
 
     func load(type: String, id: String, season: Int, ep: Int, start: Double) async {
@@ -763,8 +771,9 @@ final class PlayerModel: NSObject, ObservableObject {
 
     /// Steuerung ein-/ausblenden + Pause-Infos (läuft auch bei Pause, der Zeit-Beobachter nicht).
     /// Läuft: nach 3 s (Fernbedienung 5 s) weg. Pause: nach 6 s ohne Eingabe Steuerung weg, Logo/Titel/Beschreibung da.
+    private var debugHold = false
     private func uiTick() {
-        guard player != nil, error == nil, scrub == nil, !loading else { return }
+        guard player != nil, !debugHold, error == nil, scrub == nil, !loading else { return }
         let idle = Date().timeIntervalSince(lastInput)
         if playing {
             if visible && idle > (keyMode ? 5 : 3) { hideControls() }
