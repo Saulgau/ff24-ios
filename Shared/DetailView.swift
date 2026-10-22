@@ -61,6 +61,15 @@ struct DetailView: View {
                         }
                         Cta(label: store.playLabel(it), icon: it.soon > 0 ? nil : "play.fill") { router.playItem(it) }.frame(maxWidth: FF.scale > 1 ? 600 : .infinity)
                             .disabled(it.soon > 0).opacity(it.soon > 0 ? 0.45 : 1)
+                        #if os(iOS)
+                        // 2026-10-22: Herunterladen wie Prime (grauer Knopf unter Abspielen)
+                        if it.soon == 0 {
+                            if !it.isSeries { DownloadButton(it: it).frame(maxWidth: FF.scale > 1 ? 600 : .infinity).padding(.top, 12) }
+                            else if let se = seasons?.first(where: { $0.n == cur }), se.episodes.contains(where: \.ok) {
+                                DownloadButton(it: it, season: se.n, episodes: se.episodes.filter(\.ok).map(\.n)).frame(maxWidth: FF.scale > 1 ? 600 : .infinity).padding(.top, 12)
+                            }
+                        }
+                        #endif
                         HStack(spacing: 0) {
                             iconAction(store.inList(it) ? "checkmark" : "plus", store.inList(it) ? "Gemerkt" : "Merkliste") {
                                 if store.user == nil { router.go(.login(register: false)); return }
@@ -138,6 +147,7 @@ struct DetailView: View {
             VStack(spacing: 4) {
                 ForEach(se.episodes) { e in
                     let pp = store.progress[episodeSlug(it.id, se.n, e.n)]
+                    HStack(spacing: 0) {
                     Button {
                         if e.ok { router.playEpisode(it.id, se.n, e.n, start: (pp != nil && pp!.pct < 95) ? pp!.pos : 0) }
                     } label: {
@@ -150,8 +160,12 @@ struct DetailView: View {
                                 if let pp { ProgressLine(pct: pp.pct, height: 3).clipShape(Capsule()).padding(.top, 6) }
                             }
                             Spacer()
-                        }.padding(16).frame(maxWidth: .infinity).background(FF.box)
+                        }.padding(16).frame(maxWidth: .infinity)
                     }.buttonStyle(FocusStyle()).disabled(!e.ok)
+                    #if os(iOS)
+                    if e.ok { EpisodeDownloadIcon(id: it.id, season: se.n, ep: e.n).padding(.trailing, 8) }
+                    #endif
+                    }.background(FF.box)
                 }
             }
         } else {

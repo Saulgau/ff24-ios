@@ -116,7 +116,20 @@ final class PlayerModel: NSObject, ObservableObject, AVPlayerViewControllerDeleg
 
     func load(type: String, id: String, season: Int, ep: Int, start: Double) async {
         loading = true; error = nil; showNext = false; showSkip = false; autoNextCancelled = false; cues = []; cue = ""
-        let o = await API.getObj("/beta/api.php?q=play&type=\(type)&id=" + API.enc(id) + (type == "s" ? "&season=\(season)&ep=\(ep)" : ""))
+        var o = await API.getObj("/beta/api.php?q=play&type=\(type)&id=" + API.enc(id) + (type == "s" ? "&season=\(season)&ep=\(ep)" : ""))
+        #if os(iOS)
+        // 2026-10-22: heruntergeladen -> lokale Datei; ohne Internet komplett aus den gespeicherten Daten
+        let dk = Downloads.key(type: type, id: id, season: season, ep: ep)
+        if var l = Downloads.shared.offlinePlay(dk) {
+            if PlayInfo(o) != nil { o["src"] = l["src"]; o["vtt"] = l["vtt"] }
+            else {
+                if let n = Downloads.shared.nextDownloaded(after: dk) {
+                    l["next"] = ["season": n.season ?? 1, "ep": n.ep ?? 1, "title": n.sub, "thumb": n.poster] as [String: Any]
+                } else { l["next"] = nil }
+                o = l
+            }
+        }
+        #endif
         guard let i = PlayInfo(o) else {
             loading = false
             error = o.s("error").isEmpty ? "Dieser Titel ist noch nicht verfügbar." : o.s("error"); return

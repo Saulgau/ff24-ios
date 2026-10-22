@@ -58,7 +58,7 @@ final class Router: ObservableObject {
             go(.support)
             #endif
         case "iptv": go(.iptv)
-        case "wuensche", "konto", "nachrichten", "suche", "home": switchTab(r)
+        case "wuensche", "konto", "nachrichten", "suche", "home", "downloads": switchTab(r)
         default: switchTab("home")
         }
     }
@@ -74,6 +74,10 @@ final class Router: ObservableObject {
     }
     func playEpisode(_ id: String, _ s: Int, _ e: Int, start: Double) { play = PlayRequest(type: "s", itemId: id, season: s, ep: e, start: start) }
     func trailer(_ it: Item, _ url: String) { play = PlayRequest(trailer: (url, it.title)) }
+    #if os(iOS)
+    /// 2026-10-22: Heruntergeladenes abspielen (PlayerModel nimmt automatisch die lokale Datei).
+    func playDownload(_ d: DLItem) { play = PlayRequest(type: d.type, itemId: d.itemId, season: d.season ?? 1, ep: d.ep ?? 1, start: -1) }
+    #endif
 
     /// Nur Google-Login und Stripe-Bezahlseite gehen in den Browser.
     func browser(_ url: String) {
@@ -116,9 +120,15 @@ struct FF24App: App {
     @StateObject private var store = Store.shared
     @StateObject private var router = Router()
     @Environment(\.scenePhase) private var phase
+    #if os(iOS)
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    #endif
 
     init() {
         URLCache.shared = URLCache(memoryCapacity: 80 << 20, diskCapacity: 400 << 20, diskPath: "ff24-images")   // Bilder
+        #if os(iOS)
+        _ = Downloads.shared   // Hintergrund-Downloads nach Neustart wieder verbinden
+        #endif
     }
 
     var body: some Scene {
@@ -214,6 +224,7 @@ struct Root: View {
                 case "konto": AccountView()
                 case "nachrichten": MessagesView()
                 case "suche": SearchView()
+                case "downloads": DownloadsView()
                 default: HomeView()
                 }
             }
@@ -263,7 +274,7 @@ struct TabBar: View {
     @EnvironmentObject var router: Router
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(["home", "wuensche", "konto", "nachrichten", "suche"], id: \.self) { t in
+            ForEach(["home", "wuensche", "konto", "downloads", "nachrichten", "suche"], id: \.self) { t in
                 let on = router.tab == t && router.path.isEmpty
                 Button { router.switchTab(t) } label: {
                     ZStack(alignment: .topTrailing) {
@@ -273,6 +284,7 @@ struct TabBar: View {
                             case "wuensche": Image(systemName: "star")
                             case "konto": Avatar(user: store.user, size: 30)
                             case "nachrichten": Image(systemName: "bell")
+                            case "downloads": Image(systemName: "arrow.down.to.line")
                             default: Image(systemName: "magnifyingglass")
                             }
                         }
@@ -305,7 +317,7 @@ enum DebugScreen {
         let w = a[i + 1]
         for _ in 0..<60 where store.web.isEmpty { try? await Task.sleep(nanoseconds: 500_000_000) }
         switch w {
-        case "filme", "serien", "konto", "suche", "wuensche": router.switchTab(w)
+        case "filme", "serien", "konto", "suche", "wuensche", "downloads": router.switchTab(w)
         case "login": router.go(.login(register: false))
         case "detail-film":
             if let it = store.web.top.first(where: { !$0.isSeries && store.web.trailers[$0.id] != nil }) ?? store.web.films.first { router.open(it) }

@@ -489,6 +489,9 @@ struct TVDetail: View {
                     if !sim.isEmpty {
                         TVRow(title: "Das könnte dir auch gefallen", items: sim, focus: $focus, rowId: "sim", open: router.open).padding(.top, 34)
                     }
+                    // 2026-10-22: „Weitere Informationen“ wie Prime (fokussierbar, damit die Fernbedienung bis hierher scrollt)
+                    Button {} label: { tvInfo }.buttonStyle(TVInfoStyle()).focused($focus, equals: "info")
+                        .padding(.horizontal, TVL.side - 16).padding(.top, 40)
                     Color.clear.frame(height: 160)
                 }
             }
@@ -502,6 +505,33 @@ struct TVDetail: View {
             focus = "play"
         }
         .sheet(isPresented: $report) { ReportSheet(title: it.title, url: titleURL(it), pos: 0) }
+    }
+
+    private var tvInfo: some View {
+        var rows: [(String, String)] = []
+        if !it.genres.isEmpty { rows.append(("Genre", it.genres.joined(separator: ", "))) }
+        if !it.cast.isEmpty { rows.append(("Besetzung", it.cast.prefix(8).joined(separator: ", "))) }
+        rows.append((it.isSeries ? "Jahre" : "Jahr", it.year + (!it.endYear.isEmpty && it.endYear != it.year ? "–" + it.endYear : "")))
+        if it.isSeries { rows.append(("Umfang", "\(it.seasons) Staffeln · \(it.episodes) Folgen")) } else if it.min > 0 { rows.append(("Laufzeit", mfmt(it.min))) }
+        if it.rating > 0 { rows.append(("Bewertung", fmt1(it.rating) + " / 10")) }
+        if !it.tagline.isEmpty { rows.append(("Slogan", it.tagline)) }
+        return VStack(alignment: .leading, spacing: 14) {
+            Text("Weitere Informationen").font(.tv(31, .bold)).foregroundColor(.white).padding(.bottom, 6)
+            ForEach(rows.filter { !$0.1.isEmpty }, id: \.0) { k, v in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(k).font(.tv(23, .bold)).foregroundColor(.white)
+                    Text(v).font(.tv(23)).foregroundColor(FF.text2).lineLimit(3)
+                }
+            }
+        }.frame(maxWidth: 1400, alignment: .leading).padding(16)
+    }
+}
+
+/// Info-Block: beim Fokus nur leicht hinterlegt (kein Zoom).
+struct TVInfoStyle: ButtonStyle {
+    @Environment(\.isFocused) var focused
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(focused ? 0.08 : 0)))
     }
 }
 #endif

@@ -228,6 +228,7 @@ struct SettingsView: View {
                                 }
                             }
                         }
+                        DownloadSettings()
                         #endif
                         BoxCard(title: "E-Mails") {
                             SetRow(title: "Neue Filme per E-Mail", sub: "Wir schreiben dir, wenn neue Filme da sind.", last: true) {
