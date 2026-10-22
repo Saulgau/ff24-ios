@@ -120,6 +120,7 @@ struct User {
 /// Was der Player abspielt (beta/api.php?q=play).
 struct PlayInfo {
     let type: String, id, title, sub, src, vtt, poster, progressSlug: String
+    let desc, logo: String
     let season, ep: Int?
     let intro: (Double, Double)?
     let recap: (Double, Double)?
@@ -129,7 +130,7 @@ struct PlayInfo {
     init?(_ o: J) {
         guard o.b("ok"), !o.s("src").isEmpty else { return nil }
         type = o.s("type"); id = o.s("id"); title = o.s("title"); sub = o.s("sub"); src = o.s("src"); vtt = o.s("vtt")
-        poster = o.s("poster"); progressSlug = o.s("progressSlug").isEmpty ? o.s("id") : o.s("progressSlug")
+        poster = o.s("poster"); desc = o.s("desc"); logo = o.s("logo"); progressSlug = o.s("progressSlug").isEmpty ? o.s("id") : o.s("progressSlug")
         season = o.i("season"); ep = o.i("ep")
         let sk = o.o("skip")
         func seg(_ n: String) -> (Double, Double)? {
