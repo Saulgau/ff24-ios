@@ -1,10 +1,11 @@
 // FilmFrei24 für Windows/Linux (2026-10-20): eigenes Programmfenster mit filmfrei24.com,
 // Google-Login + Bezahlseiten im normalen Browser (Rücksprung per filmfrei24://login?code=...),
 // Update-Hinweis aus tv.filmfrei24.com/app-version.json ("desktop").
-const { app, BrowserWindow, shell, dialog, session, net, Menu } = require('electron');
+const { app, BrowserWindow, shell, dialog, session, net, Menu, ipcMain } = require('electron');
 const path = require('path');
-const VERSION_BUILD = 1;                 // bei jeder neuen Version hochzählen (app-version.json desktop.build)
+const VERSION_BUILD = 2;                 // bei jeder neuen Version hochzählen (app-version.json desktop.build)
 const HOME = 'https://filmfrei24.com/';
+const DL = require('./downloads');   // 2026-10-22: Offline-Downloads
 let win = null;
 
 // H.265/HEVC über die Grafikkarte erlauben (die meisten Filme sind HEVC)
@@ -31,7 +32,14 @@ function createWindow() {
   win.webContents.setUserAgent(win.webContents.getUserAgent() + ' FF24Desktop/' + app.getVersion());
   win.loadURL(HOME);
   // Scrollbalken ausblenden (wirkt wie eine App, Scrollen per Mausrad/Tasten bleibt)
-  win.webContents.on('did-finish-load', () => win.webContents.insertCSS('html::-webkit-scrollbar,body::-webkit-scrollbar{width:0!important;height:0!important}'));
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.insertCSS('html::-webkit-scrollbar,body::-webkit-scrollbar{width:0!important;height:0!important}');
+    if (isInternal(win.webContents.getURL())) win.webContents.executeJavaScript(DL.INJECT).catch(() => {});
+  });
+  // Ohne Internet: direkt die heruntergeladenen Videos zeigen
+  win.webContents.on('did-fail-load', (_e, code, _d, url, isMain) => {
+    if (isMain && code <= -100 && code > -200 && isInternal(url)) win.loadFile(path.join(__dirname, 'downloads.html'), { query: { offline: '1' } });
+  });
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (needsBrowser(url)) { shell.openExternal(url); return { action: 'deny' }; }
     win.loadURL(url); return { action: 'deny' };
@@ -89,7 +97,10 @@ app.on('second-instance', (_e, argv) => {
   else if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
 });
 app.on('open-url', (e, u) => { e.preventDefault(); handleDeepLink(u); });   // macOS
+ipcMain.handle('dl:open', (_e, k) => win && win.loadFile(path.join(__dirname, 'downloads.html'), { hash: k || '' }));
+ipcMain.handle('dl:home', () => win && win.loadURL(HOME));
 app.whenReady().then(() => {
+  DL.init();
   createWindow();
   const link = process.argv.find(a => a.startsWith('filmfrei24://'));
   if (link) handleDeepLink(link);

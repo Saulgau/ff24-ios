@@ -1,7 +1,7 @@
 {
   "name": "filmfrei24",
   "productName": "FilmFrei24",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "FilmFrei24 für Windows und Linux",
   "main": "main.js",
   "author": "FilmFrei24",
@@ -13,7 +13,7 @@
     "productName": "FilmFrei24",
     "artifactName": "FilmFrei24-Setup.${ext}",
     "directories": { "output": "dist" },
-    "files": ["main.js", "preload.js", "icon.png"],
+    "files": ["main.js", "preload.js", "downloads.js", "downloads.html", "icon.png"],
     "protocols": [{ "name": "FilmFrei24", "schemes": ["filmfrei24"] }],
     "win": { "target": "nsis", "icon": "icon.png" },
     "nsis": { "oneClick": true, "perMachine": false, "shortcutName": "FilmFrei24", "createDesktopShortcut": true, "runAfterFinish": true },
