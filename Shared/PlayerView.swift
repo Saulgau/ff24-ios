@@ -170,7 +170,7 @@ struct PLayout {
 }
 
 let SPEEDS: [Float] = [0.75, 1, 1.25, 1.5, 2]
-func spdTxt(_ r: Float) -> String { r == 1 ? "1x" : (r == r.rounded() ? String(format: "%.0fx", r) : String(format: "%gx", r)) }
+func spdTxt(_ r: Float) -> String { r == 1 ? "1x" : (r == r.rounded() ? String(format: "%.0fx", r) : String(format: "%gx", r).replacingOccurrences(of: ".", with: ",")) }
 
 // MARK: - Oberfläche (wie Prime Video, User-Screenshots 2026-10-23; gleich wie Website beta/index.php .plr)
 
@@ -205,7 +205,7 @@ struct PlayerOverlay: View {
             // Pause-Infos (nur wenn Steuerung weg ist, nie über den Knöpfen)
             if m.pausedLong && !m.visible, let i = m.info { pauseInfo(i).transition(.opacity) }
 
-            controls.opacity(m.visible && !m.rating ? 1 : 0).allowsHitTesting(m.visible && !m.rating)
+            controls.opacity(m.visible ? 1 : 0).allowsHitTesting(m.visible)
 
             if m.loading && m.error == nil {
                 ProgressView().tint(.white).scaleEffect(1.6 * k).allowsHitTesting(false)
@@ -214,8 +214,8 @@ struct PlayerOverlay: View {
             // Nächste Folge / Intro überspringen: in der Pillen-Zeile unten rechts, auch bei ausgeblendeter Steuerung
             VStack { Spacer(); HStack { Spacer()
                 if m.showNext && m.info?.next != nil { nextButton }
-                else if m.showSkip && !m.rating { skipButton }
-                else if L.tv, m.visible, !m.rating, let n = m.info?.next { nextPill(n) }
+                else if m.showSkip { skipButton }
+                else if L.tv, m.visible, let n = m.info?.next { nextPill(n) }
             } }
             .padding(.trailing, L.edge).padding(.bottom, L.overBar)
 
@@ -268,7 +268,7 @@ struct PlayerOverlay: View {
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
             Spacer()
-        }.foregroundColor(.white).padding(.horizontal, L.edge).padding(.top, L.tv ? 0 : 10).allowsHitTesting(false)
+        }.foregroundColor(.white).padding(.horizontal, L.edge).padding(.top, L.tv ? 0 : (m.visible ? L.topBtn + 18 : 10)).allowsHitTesting(false)
     }
 
     // ── Steuerung ──
@@ -941,7 +941,7 @@ final class PlayerModel: NSObject, ObservableObject {
         pos = t
         // Altersfreigabe einmal pro Titel beim ersten Abspielen (~6,5 s), Steuerung so lange aus
         if !rated, playing, sheet == .none, let i = info, !i.fskR.isEmpty {
-            rated = true; rating = true; ratingUntil = Date().addingTimeInterval(6.5); visible = false
+            rated = true; rating = true; ratingUntil = Date().addingTimeInterval(6.5)  // 2026-10-23: Steuerung/Intro-Knopf bleiben
         }
         if let it = player?.currentItem {
             let d = it.duration.seconds
@@ -1025,8 +1025,8 @@ final class PlayerModel: NSObject, ObservableObject {
     }
 
     // ── Bedienung ──
-    func touched() { keyMode = false; lastInput = Date(); rating = false }
-    private func touchedKey(_ k: Bool) { keyMode = k; lastInput = Date(); pausedLong = false; rating = false }
+    func touched() { keyMode = false; lastInput = Date() }
+    private func touchedKey(_ k: Bool) { keyMode = k; lastInput = Date(); pausedLong = false }
     private func show(_ f: PF? = nil) { visible = true; pausedLong = false; if let f { focus = f }; lastInput = Date() }
 
     func toggle() {

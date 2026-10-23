@@ -161,11 +161,7 @@ struct TVFocusStyle: ButtonStyle {
                 .scaleEffect(configuration.isPressed ? 0.97 : (big ? pulse : 1))
                 .shadow(color: .black.opacity(focused ? 0.55 : 0), radius: 18, y: 10)
                 .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
-                .onChange(of: focused) { f in
-                    guard f else { withAnimation(.easeOut(duration: 0.2)) { big = false }; return }
-                    withAnimation(.easeOut(duration: 0.18)) { big = true }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { withAnimation(.easeInOut(duration: 0.35)) { big = false } }
-                }
+                // 2026-10-23 User: kein Hüpfen beim Auswählen mehr → Fokus nur weißer Rahmen + Schatten (Puls entfernt)
         }
     }
 }
