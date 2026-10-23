@@ -33,7 +33,7 @@ struct PlayerView: View {
                 ZStack {
                     if !m.cue.isEmpty {
                         VStack { Spacer()
-                            Text(m.cue).font(.inter(L.cueFont, .medium)).foregroundColor(.white).multilineTextAlignment(.center)
+                            Text(m.cue).font(pf(L.cueFont, .medium)).foregroundColor(.white).multilineTextAlignment(.center)
                                 .padding(.horizontal, 10).padding(.vertical, 4).background(Color.black.opacity(0.6))
                                 .padding(.bottom, m.visible ? L.cueUp : L.edge)
                         }.frame(maxWidth: .infinity).allowsHitTesting(false)
@@ -41,8 +41,8 @@ struct PlayerView: View {
                     PlayerOverlay(m: m, L: L, onReport: { m.player?.pause(); report = true })
                     if let e = m.error {
                         VStack(spacing: 16) {
-                            Text("Wiedergabe nicht möglich").font(.inter(22, .bold)).foregroundColor(.white)
-                            Text(e).font(.inter(15)).foregroundColor(Color(hex: 0xCFD3D8)).multilineTextAlignment(.center).frame(maxWidth: min(520 * FF.scale, L.w - 32))
+                            Text("Wiedergabe nicht möglich").font(pf(L.tv ? 36 : 22, .bold)).foregroundColor(.white)
+                            Text(e).font(pf(L.tv ? 26 : 15)).foregroundColor(Color(hex: 0xCFD3D8)).multilineTextAlignment(.center).frame(maxWidth: min(L.tv ? 900 : 520, L.w - 32))
                             HStack(spacing: 10) {
                                 GreyButton(label: "Problem melden") { report = true }
                                 GreyButton(label: "Schließen", white: true) { close() }
@@ -55,6 +55,10 @@ struct PlayerView: View {
         #if os(iOS)
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
+        #endif
+        #if os(tvOS)
+        // 2026-10-23 User: Zurück im Menü sprang zur Detailseite → Menü-Taste immer über das eigene Modell
+        .onExitCommand { if !report { m.press(.back, repeatCount: 0) } }
         #endif
         .task { m.onClose = { close() }; m.onReportFromRemote = { report = true }; await m.start(req) }
         .onAppear { Orientation.landscape(true); StatusBar.hidden(true) }
@@ -103,40 +107,66 @@ enum StatusBar {
     }
 }
 
+/// Schrift im Player: Apple TV in echten Punkten der 1920er-Fläche (.tv rechnet FF.scale heraus), sonst wie App.
+func pf(_ size: CGFloat, _ w: Font.Weight = .regular) -> Font {
+    let k = PLayout.cfgK
+    #if os(tvOS)
+    return .tv(size * k, w)
+    #else
+    return .inter(size * k, w)
+    #endif
+}
+
 /// Maße nach echter Bildschirmgröße; Handy = kleinere Maße, nichts außerhalb des sicheren Bereichs.
-/// tvOS: alles × FF.scale (Schriften skaliert .inter selbst), Ränder kommen aus dem Overscan-Sicherheitsbereich.
+/// 2026-10-23 User „nur 100 %, nie 150 %“: Apple TV rechnet in echten Punkten (1920 breit) wie Website am PC
+/// und die Samsung/LG-App – vorher alles × 1,9. Größenfaktor zusätzlich vom Server (app-config.json player.scale.*).
 struct PLayout {
     let w: CGFloat, h: CGFloat
-    let k = FF.scale
     #if os(tvOS)
     let tv = true
+    static var cfgK: CGFloat { CGFloat(min(2, max(0.5, RemoteCfg.num("player.scale.tv", 1)))) }
     #else
     let tv = false
+    static var cfgK: CGFloat { CGFloat(min(2, max(0.5, RemoteCfg.num(UIDevice.current.userInterfaceIdiom == .pad ? "player.scale.tablet" : "player.scale.phone", 1)))) }
     #endif
+    /// Faktor für Maße (Schriften über pf)
+    var k: CGFloat { PLayout.cfgK }
     var portrait: Bool { h > w }
     /// Handy (quer oder hochkant)
     var phone: Bool { !tv && min(w, h) < 500 }
     var edge: CGFloat { tv ? 0 : (phone ? 16 : max(28, w * 0.045)) }
-    var topBtn: CGFloat { tv ? 52 * k : (phone ? 44 : 48) }
-    var topIcon: CGFloat { tv ? 28 * k : (phone ? 24 : 26) }
-    var topGap: CGFloat { tv ? 14 * k : (phone ? min(14, w * 0.02) : 18) }
-    var spdFont: CGFloat { tv ? 22 : (phone ? 21 : 23) }
-    var titleFont: CGFloat { tv ? 26 : (phone ? 20 : 26) }
-    var subFont: CGFloat { tv ? 16 : (phone ? 13 : 15) }
-    var logoH: CGFloat { tv ? 64 * k : (phone ? 40 : 56) }
-    var logoW: CGFloat { tv ? 300 * k : (phone ? w * (portrait ? 0.48 : 0.3) : min(280, w * 0.26)) }
-    var playSize: CGFloat { tv ? 80 * k : (phone ? 64 : 84) }
-    var seekSize: CGFloat { phone ? 40 : 46 }
-    var midGap: CGFloat { phone ? min(56, w * 0.09) : 96 }
-    var timeFont: CGFloat { tv ? 16 : (phone ? 13 : 15) }
-    var btnFont: CGFloat { tv ? 17 : (phone ? 15 : 16) }
-    var btnH: CGFloat { tv ? 48 * k : (phone ? 42 : 48) }
-    var cueFont: CGFloat { tv ? 24 : (phone ? 17 : 22) }
-    var cueUp: CGFloat { tv ? 140 * k : (portrait ? 130 : (phone ? 104 : 130)) }
+    var topBtn: CGFloat { (tv ? 64 : (phone ? 44 : 48)) * k }
+    var topIcon: CGFloat { (tv ? 34 : (phone ? 24 : 26)) * k }
+    var topGap: CGFloat { tv ? 20 * k : (phone ? min(14, w * 0.02) : 18 * k) }
+    var spdFont: CGFloat { tv ? 28 : (phone ? 21 : 23) }
+    var titleFont: CGFloat { phone ? 15 : 17 }
+    var playSize: CGFloat { (tv ? 120 : (phone ? 64 : 84)) * k }
+    var seekSize: CGFloat { (phone ? 40 : 46) * k }
+    var midGap: CGFloat { phone ? min(56, w * 0.09) : 96 * k }
+    var timeFont: CGFloat { tv ? 24 : (phone ? 13 : 15) }
+    var btnFont: CGFloat { tv ? 26 : (phone ? 15 : 16) }
+    var btnH: CGFloat { (tv ? 64 : (phone ? 42 : 48)) * k }
+    var btnIcon: CGFloat { (tv ? 26 : 18) * k }
+    var cueFont: CGFloat { tv ? 40 : (phone ? 17 : 22) }
+    var cueUp: CGFloat { (tv ? 170 : (portrait ? 130 : (phone ? 104 : 130))) * k }
     /// Abstand der unteren Zeile (Pille / Intro-Knopf) vom Rand
     var bottomPad: CGFloat { tv ? 0 : (phone ? 6 : 16) }
-    var fskFont: CGFloat { tv ? 22 : (phone ? 16 : 20) }
-    var fskTFont: CGFloat { tv ? 18 : (phone ? 14 : 17) }
+    /// Fernseher: „Intro überspringen“/„Nächste Folge“ sitzen über Leiste + Zeiten (keine eigene Zeile → Leiste tiefer)
+    var overBar: CGFloat { tv ? (30 + 36 + 28) * k : bottomPad }
+    var fskFont: CGFloat { tv ? 30 : (phone ? 16 : 20) }
+    var fskTFont: CGFloat { tv ? 24 : (phone ? 14 : 17) }
+    // Leiste
+    var barBox: CGFloat { (tv ? 30 : 24) * k }
+    var bar: CGFloat { (tv ? 6 : 5) * k }
+    var barBig: CGFloat { (tv ? 10 : 8) * k }
+    var knob: CGFloat { (tv ? 18 : 14) * k }
+    var knobBig: CGFloat { (tv ? 28 : 18) * k }
+    // Menü-Blatt
+    var sheetW: CGFloat { (tv ? 760 : 560) * k }
+    var rowFont: CGFloat { tv ? 28 : (phone ? 17 : 19) }
+    var rowH: CGFloat { (tv ? 72 : 50) * k }
+    var headFont: CGFloat { tv ? 32 : (phone ? 20 : 24) }
+    var tile: CGFloat { (tv ? 124 : 112) * k }
 }
 
 let SPEEDS: [Float] = [0.75, 1, 1.25, 1.5, 2]
@@ -185,8 +215,9 @@ struct PlayerOverlay: View {
             VStack { Spacer(); HStack { Spacer()
                 if m.showNext && m.info?.next != nil { nextButton }
                 else if m.showSkip && !m.rating { skipButton }
+                else if L.tv, m.visible, !m.rating, let n = m.info?.next { nextPill(n) }
             } }
-            .padding(.trailing, L.edge).padding(.bottom, L.bottomPad)
+            .padding(.trailing, L.edge).padding(.bottom, L.overBar)
 
             if m.rating, let i = m.info, !i.fskR.isEmpty { ratingView(i).transition(.opacity) }
 
@@ -199,33 +230,34 @@ struct PlayerOverlay: View {
     }
 
     func pauseInfo(_ i: PlayInfo) -> some View {
-        let maxW = min((L.tv ? 620 : 520) * k, L.w * (L.portrait ? 0.92 : 0.55))
+        let maxW = min((L.tv ? 900 : 520) * k, L.w * (L.portrait ? 0.92 : 0.55))
         return ZStack(alignment: .bottomLeading) {
-            LinearGradient(stops: [.init(color: .black.opacity(0.85), location: 0), .init(color: .black.opacity(0.3), location: 0.6), .init(color: .clear, location: 1)],
+            // 2026-10-23 User: Pause-Text zu ausgegraut → leichterer Verlauf, Text weiß mit Schatten
+            LinearGradient(stops: [.init(color: .black.opacity(0.7), location: 0), .init(color: .black.opacity(0.2), location: 0.55), .init(color: .clear, location: 1)],
                            startPoint: L.portrait ? .bottom : .leading, endPoint: L.portrait ? .top : .trailing).ignoresSafeArea()
             VStack(alignment: .leading, spacing: 0) {
                 if !i.logo.isEmpty {
-                    Img(url: i.logo, mode: .fit, align: .bottomLeading).frame(width: min(360 * k, maxW), height: (L.phone ? 90 : 140) * k).padding(.bottom, 14 * k)
+                    Img(url: i.logo, mode: .fit, align: .bottomLeading).frame(width: min((L.tv ? 520 : 360) * k, maxW), height: (L.tv ? 170 : (L.phone ? 90 : 140)) * k).padding(.bottom, (L.tv ? 22 : 14) * k)
                 } else {
-                    Text(i.title).font(.inter(L.phone ? 26 : 34, .heavy)).foregroundColor(.white).lineLimit(2).minimumScaleFactor(0.7).padding(.bottom, 10 * k)
+                    Text(i.title).font(pf(L.tv ? 54 : (L.phone ? 26 : 34), .heavy)).foregroundColor(.white).lineLimit(2).minimumScaleFactor(0.7).padding(.bottom, 10 * k)
                 }
-                if i.type == "s" { Text(i.sub).font(.inter(L.phone ? 15 : 18, .bold)).foregroundColor(.white).lineLimit(1).padding(.bottom, 8 * k) }
+                if i.type == "s" { Text(i.sub).font(pf(L.tv ? 28 : (L.phone ? 15 : 18), .bold)).foregroundColor(.white).lineLimit(1).padding(.bottom, 8 * k) }
                 if !i.desc.isEmpty {
-                    Text(i.desc).font(.inter(L.phone ? 14 : 16)).foregroundColor(Color(hex: 0xE7EAED)).lineLimit(L.phone ? 3 : 4).lineSpacing(4)
+                    Text(i.desc).font(pf(L.tv ? 26 : (L.phone ? 14 : 16))).foregroundColor(.white).lineLimit(L.phone ? 3 : 4).lineSpacing(L.tv ? 8 : 4)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-            }.frame(maxWidth: maxW, alignment: .leading)
-                .padding(.leading, L.tv ? 0 : L.edge + 12).padding(.bottom, L.tv ? 20 * k : L.edge + 24)
+            }.frame(maxWidth: maxW, alignment: .leading).shadow(color: .black.opacity(0.7), radius: 6, y: 1)
+                .padding(.leading, L.tv ? 0 : L.edge + 12).padding(.bottom, L.tv ? 40 * k : L.edge + 24)
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading).allowsHitTesting(false)
     }
 
     /// Altersfreigabe beim Start (Prime: Kasten oben links + Hinweise), Steuerung so lange aus
     func ratingView(_ i: PlayInfo) -> some View {
-        let box = Text("ALTERSFREIGABE " + i.fskR).font(.inter(L.fskFont, .semibold)).lineLimit(1).fixedSize()
-            .padding(.horizontal, (L.phone ? 10 : 14) * k).padding(.vertical, (L.phone ? 6 : 9) * k)
+        let box = Text("ALTERSFREIGABE " + i.fskR).font(pf(L.fskFont, .semibold)).lineLimit(1).fixedSize()
+            .padding(.horizontal, (L.tv ? 20 : (L.phone ? 10 : 14)) * k).padding(.vertical, (L.tv ? 12 : (L.phone ? 6 : 9)) * k)
             .background(RoundedRectangle(cornerRadius: 12 * k).fill(Color.black.opacity(0.35)))
-            .overlay(RoundedRectangle(cornerRadius: 12 * k).stroke(Color.white.opacity(0.55), lineWidth: 2 * k))
-        let note = Text(i.fskD).font(.inter(L.fskTFont, .medium)).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+            .overlay(RoundedRectangle(cornerRadius: 12 * k).stroke(Color.white.opacity(0.55), lineWidth: (L.tv ? 3 : 2) * k))
+        let note = Text(i.fskD).font(pf(L.fskTFont, .medium)).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
             .shadow(color: .black.opacity(0.8), radius: 3)
         return VStack(alignment: .leading, spacing: 0) {
             Group {
@@ -249,7 +281,6 @@ struct PlayerOverlay: View {
             // oben: ✕ links, rechts (AirPlay) · Untertitel · 1x · Zahnrad; darunter Logo bzw. Titel
             VStack(alignment: .leading, spacing: 0) {
                 topBar
-                titleBlock.padding(.top, (L.phone ? 4 : 12) * k)
                 Spacer()
             }.padding(.horizontal, L.edge).padding(.top, L.tv ? 0 : (L.phone ? 4 : 12))
 
@@ -267,15 +298,17 @@ struct PlayerOverlay: View {
             VStack(spacing: 0) {
                 Spacer()
                 let shown = m.scrub ?? m.pos
-                SeekBar(m: m, shown: shown)
+                SeekBar(m: m, shown: shown, L: L)
                 HStack {
                     Text(ptime(shown)).monospacedDigit().lineLimit(1).fixedSize()
                     Spacer()
                     Text("-" + ptime(max(0, m.dur - shown))).monospacedDigit().lineLimit(1).fixedSize()
-                }.font(.inter(L.timeFont, .medium)).padding(.top, 2 * k)
-                HStack { Spacer()
-                    if let n = m.info?.next, !m.showNext, !m.showSkip { nextPill(n) }
-                }.frame(height: L.btnH).padding(.top, 6 * k)
+                }.font(pf(L.timeFont, .medium)).padding(.top, (L.tv ? 6 : 2) * k)
+                if !L.tv {
+                    HStack { Spacer()
+                        if let n = m.info?.next, !m.showNext, !m.showSkip { nextPill(n) }
+                    }.frame(height: L.btnH).padding(.top, 6 * k)
+                }
             }.foregroundColor(.white)
                 .padding(.horizontal, L.edge).padding(.bottom, L.bottomPad)
         }
@@ -285,43 +318,32 @@ struct PlayerOverlay: View {
         HStack(spacing: L.topGap) {
             topBtn(.close, "Schließen") { WebIcon.x.frame(width: L.topIcon, height: L.topIcon) } action: { m.onClose?() }
                 .padding(.leading, -10 * k)
+            // 2026-10-23 User: Logo oben weg (Pause zeigt Logo + Text); iPhone/iPad nur kurze Titelzeile, Fernseher nichts
+            if !L.tv, RemoteCfg.bool("player.titlePhone", true), let i = m.info {
+                Text(i.title + (i.type == "s" && !i.sub.isEmpty ? " · " + i.sub : "")).font(pf(L.titleFont, .semibold)).foregroundColor(.white)
+                    .lineLimit(1).truncationMode(.tail).padding(.leading, 6).allowsHitTesting(false)
+            }
             Spacer(minLength: 0)
             #if os(iOS)
             AirPlayButton().frame(width: L.topBtn, height: L.topBtn)
             #endif
-            topBtn(.cc, "Untertitel und Audio") {
+            if m.showCcBtn { topBtn(.cc, "Untertitel und Audio") {
                 Image(systemName: m.ccOn && m.hasCc ? "text.bubble.fill" : "text.bubble").font(.system(size: L.topIcon * 0.92, weight: .regular))
-            } action: { m.openSheet(.ccau) }
-            topBtn(.spd, "Geschwindigkeit", wide: true) { Text(spdTxt(m.speed)).font(.inter(L.spdFont)).lineLimit(1).fixedSize() } action: { m.openSheet(.speed) }
+            } action: { m.openSheet(.ccau) } }
+            topBtn(.spd, "Geschwindigkeit", wide: true) { Text(spdTxt(m.speed)).font(pf(L.spdFont)).lineLimit(1).fixedSize() } action: { m.openSheet(.speed) }
             topBtn(.set, "Einstellungen") { Image(systemName: "gearshape.fill").font(.system(size: L.topIcon * 0.95)) } action: { m.openSheet(.main) }
                 .padding(.trailing, -10 * k)
         }.frame(height: L.topBtn)
-    }
-
-    /// Oben links Logo (wie Website #p-tlogo), Titeltext nur ohne Logo; Serien: „S1 F2 · Titel“ darunter.
-    @ViewBuilder var titleBlock: some View {
-        if let i = m.info {
-            VStack(alignment: .leading, spacing: 8 * k) {
-                if !i.logo.isEmpty && logoFailed != i.logo {
-                    Img(url: i.logo, mode: .fit, align: .leading, onFail: { logoFailed = i.logo }).frame(width: L.logoW, height: L.logoH)
-                } else {
-                    Text(i.title).font(.inter(L.titleFont, .heavy)).lineLimit(2).minimumScaleFactor(0.8)
-                }
-                if i.type == "s" && !i.sub.isEmpty {
-                    Text(i.sub).font(.inter(L.subFont, .semibold)).foregroundColor(Color(hex: 0xE2E5E8)).lineLimit(1)
-                }
-            }.foregroundColor(.white).frame(maxWidth: L.portrait ? L.w * 0.9 : L.w * 0.46, alignment: .leading).allowsHitTesting(false)
-        }
     }
 
     /// Dunkle Pille unten rechts (wie Prime „X-Ray“): hier „Nächste Folge“.
     func nextPill(_ n: (season: Int, ep: Int, title: String, thumb: String)) -> some View {
         let f = key && m.focus == .next
         return HStack(spacing: 8 * k) {
-            Text("Nächste Folge").font(.inter(L.btnFont, .semibold)).lineLimit(1).fixedSize()
-            WebIcon.next.frame(width: 18 * k, height: 18 * k)
+            Text("Nächste Folge").font(pf(L.btnFont, .semibold)).lineLimit(1).fixedSize()
+            WebIcon.next.frame(width: L.btnIcon, height: L.btnIcon)
         }.foregroundColor(f ? FF.dark : .white)
-            .padding(.horizontal, (L.phone ? 18 : 24) * k).frame(height: L.btnH)
+            .padding(.horizontal, (L.tv ? 30 : (L.phone ? 18 : 24)) * k).frame(height: L.btnH)
             .background(Capsule().fill(f ? Color.white : Color(hex: 0x34363B, alpha: 0.92)))
             .scaleEffect(f ? 1.06 : 1).tap { m.playNext() }.accessibilityLabel("Nächste Folge S\(n.season) F\(n.ep)")
     }
@@ -356,9 +378,9 @@ struct PlayerOverlay: View {
     /// Weiße Pille unten rechts (Intro/Rückblick überspringen, Nächste Folge) – Text nie umbrechen.
     func whiteButton(_ label: String, icon: some View, focused: Bool, progress: Double?, action: @escaping () -> Void) -> some View {
         HStack(spacing: 10 * k) {
-            Text(label).font(.inter(L.btnFont, .bold)).lineLimit(1).fixedSize()
-            icon.frame(width: 18 * k, height: 18 * k)
-        }.foregroundColor(Color(hex: 0x0F1114)).padding(.horizontal, 22 * k).frame(height: L.btnH)
+            Text(label).font(pf(L.btnFont, .bold)).lineLimit(1).fixedSize()
+            icon.frame(width: L.btnIcon, height: L.btnIcon)
+        }.foregroundColor(Color(hex: 0x0F1114)).padding(.horizontal, (L.tv ? 30 : 22) * k).frame(height: L.btnH)
             .background(
                 ZStack(alignment: .leading) {
                     Color(hex: 0xF0F1F3).opacity(focused ? 1 : 0.95)
@@ -396,13 +418,17 @@ struct PlayerSheet: View {
             Color.black.opacity(0.62).ignoresSafeArea().tap { m.closeSheet() }
             VStack(spacing: 0) {
                 Capsule().fill(Color(hex: 0x55585E)).frame(width: 44 * k, height: 5 * k).padding(.top, 12 * k).padding(.bottom, 14 * k).tap { m.closeSheet() }
+                #if os(tvOS)
+                content
+                #else
                 ViewThatFits(in: .vertical) {
                     content
                     ScrollView(showsIndicators: false) { content }
                 }
+                #endif
             }
             .padding(.horizontal, 16 * k)
-            .frame(maxWidth: min((L.tv ? 640 : 560) * k, L.w))
+            .frame(maxWidth: min(L.sheetW, L.w))
             .background(RoundedRectangle(cornerRadius: 26 * k).fill(Color(hex: 0x1B1C20)).padding(.bottom, -60 * k).ignoresSafeArea(edges: .bottom))
             .frame(maxHeight: L.h - 24 * k, alignment: .bottom)
         }.foregroundColor(.white)
@@ -413,7 +439,7 @@ struct PlayerSheet: View {
         VStack(spacing: 0) {
             if let t = m.sheetTitle {
                 ZStack {
-                    Text(t).font(.inter(L.phone ? 20 : 24, .heavy)).lineLimit(1).padding(.horizontal, 44 * k)
+                    Text(t).font(pf(L.headFont, .heavy)).lineLimit(1).padding(.horizontal, 44 * k)
                     if m.sheetBack {
                         HStack {
                             Image(systemName: "chevron.left").font(.system(size: 20 * k, weight: .semibold)).frame(width: 40 * k, height: 40 * k)
@@ -424,15 +450,15 @@ struct PlayerSheet: View {
                 }.padding(.top, 2 * k).padding(.bottom, 18 * k)
             }
             if m.sheet == .speed {
-                HStack(spacing: 12 * k) {
+                HStack(spacing: 16 * k) {
                     ForEach(Array(items.enumerated()), id: \.1.id) { n, it in tile(it, focused: m.keyMode && m.sheetFocus == n) }
-                }.padding(.bottom, 18 * k)
+                }.padding(.top, 6 * k).padding(.bottom, 22 * k)
             } else {
                 let groups = Array(Set(items.map(\.group))).sorted()
                 ForEach(groups, id: \.self) { g in
                     VStack(alignment: .leading, spacing: 0) {
                         if let lbl = m.sheetGroupLabels[g] {
-                            Text(lbl.uppercased()).font(.inter(12, .semibold)).foregroundColor(Color(hex: 0x9A9EA5)).padding(.leading, 20 * k).padding(.top, 8 * k).padding(.bottom, 2 * k)
+                            Text(lbl.uppercased()).font(pf(L.tv ? 18 : 12, .semibold)).foregroundColor(Color(hex: 0x9A9EA5)).padding(.leading, 20 * k).padding(.top, 8 * k).padding(.bottom, 2 * k)
                         }
                         ForEach(Array(items.enumerated()).filter { $0.1.group == g }, id: \.1.id) { n, it in row(it, focused: m.keyMode && m.sheetFocus == n) }
                     }.padding(.vertical, 6 * k).frame(maxWidth: .infinity, alignment: .leading)
@@ -443,33 +469,35 @@ struct PlayerSheet: View {
     }
 
     func row(_ it: SItem, focused f: Bool) -> some View {
-        let fs: CGFloat = L.tv ? 21 : (L.phone ? 17 : 19)
+        let fs: CGFloat = L.rowFont
         return HStack(spacing: 16 * k) {
-            if let ic = it.icon { Image(systemName: ic).font(.system(size: 22 * k)).frame(width: 30 * k) }
-            Text(it.label).font(.inter(fs)).lineLimit(1).opacity(it.dis ? 0.6 : 1)
+            if let ic = it.icon { Image(systemName: ic).font(.system(size: (L.tv ? 28 : 22) * k)).frame(width: (L.tv ? 38 : 30) * k) }
+            Text(it.label).font(pf(fs)).lineLimit(1).opacity(it.dis ? 0.6 : 1)
             Spacer(minLength: 8 * k)
-            if !it.value.isEmpty { Text(it.value).font(.inter(fs * 0.95)).foregroundColor(f ? Color(hex: 0x4A4E55) : Color(hex: 0xA3A7AD)).lineLimit(1).fixedSize() }
+            if !it.value.isEmpty { Text(it.value).font(pf(fs * 0.95)).foregroundColor(f ? Color(hex: 0x4A4E55) : Color(hex: 0xA3A7AD)).lineLimit(1).fixedSize() }
             if it.chevron { Image(systemName: "chevron.right").font(.system(size: 17 * k, weight: .semibold)) }
             else if it.sel { Image(systemName: "checkmark").font(.system(size: 17 * k, weight: .semibold)) }
         }.foregroundColor(f ? FF.dark : .white)
-            .padding(.horizontal, 14 * k).frame(minHeight: (L.tv ? 58 : 50) * k)
+            .padding(.horizontal, 14 * k).frame(minHeight: L.rowH)
             .background(RoundedRectangle(cornerRadius: 12 * k).fill(f ? Color.white : Color.clear))
             .padding(.horizontal, 6 * k)
             .tap { if !it.dis { m.sheetAct(it.id) } }
     }
 
-    /// Kachelbreite: 5 Kacheln + 4 Abstände passen ins Blatt (max. 112)
-    private var tileW: CGFloat { min(112 * k, (min((L.tv ? 640 : 560) * k, L.w) - 32 * k - 48 * k) / 5) }
+    /// Kachelbreite: 5 Kacheln + 4 Abstände passen ins Blatt
+    private var tileW: CGFloat { min(L.tile, (min(L.sheetW, L.w) - 32 * k - 4 * 16 * k) / 5) }
 
+    /// 2026-10-23 User: Kacheln schöner, Umrandung zu klein → gewählt = dicker weißer Rand, Fokus = weiß + größer
     func tile(_ it: SItem, focused f: Bool) -> some View {
-        let fs: CGFloat = L.tv ? 21 : (L.phone ? 17 : 19)
-        return VStack(spacing: 6 * k) {
-            Text(it.label).font(.inter(fs)).lineLimit(1).fixedSize()
-            if it.label == "1x" { Text("Normal").font(.inter(fs * 0.85)).lineLimit(1).fixedSize() }
+        let fs: CGFloat = L.rowFont
+        return VStack(spacing: 4 * k) {
+            Text(it.label).font(pf(fs * 1.1, .bold)).lineLimit(1).fixedSize()
+            if it.label == "1x" { Text("Normal").font(pf(fs * 0.75)).opacity(0.85).lineLimit(1).fixedSize() }
         }.foregroundColor(f ? FF.dark : .white)
-            .frame(width: tileW, height: tileW * 1.1)
-            .background(RoundedRectangle(cornerRadius: 14 * k).fill(f ? Color.white : Color(hex: it.sel ? 0x3C3E44 : 0x34363B)))
-            .overlay(RoundedRectangle(cornerRadius: 14 * k).stroke(Color(hex: 0x8B8E94), lineWidth: it.sel && !f ? 2 * k : 0))
+            .frame(width: tileW, height: tileW)
+            .background(RoundedRectangle(cornerRadius: 16 * k).fill(f ? Color.white : Color(hex: it.sel ? 0x45484F : 0x2C2E33)))
+            .overlay(RoundedRectangle(cornerRadius: 16 * k).stroke(f || it.sel ? Color.white.opacity(f ? 1 : 0.9) : Color.white.opacity(0.12), lineWidth: (L.tv ? 4 : 3) * k))
+            .scaleEffect(f ? 1.1 : 1).animation(.easeOut(duration: 0.15), value: f)
             .tap { m.sheetAct(it.id) }
     }
 }
@@ -484,25 +512,26 @@ func ptime(_ t: Double) -> String {
 struct SeekBar: View {
     @ObservedObject var m: PlayerModel
     let shown: Double
+    let L: PLayout
     @State private var drag = false
-    private let k = FF.scale
+    private var k: CGFloat { L.k }
 
     var body: some View {
         GeometryReader { g in
             let big = drag || (m.keyMode && m.focus == .seek)
             let d = max(m.dur, 1)
             let x = g.size.width * CGFloat(min(1, max(0, shown / d)))
-            let th = (big ? 8 : 5) * k, kn = (big ? 18 : 14) * k
+            let th = big ? L.barBig : L.bar, kn = big ? L.knobBig : L.knob
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.white.opacity(0.28)).frame(height: th)
                 Capsule().fill(Color.white.opacity(0.22)).frame(width: g.size.width * CGFloat(min(1, m.buffered / d)), height: th)
                 Capsule().fill(Color.white).frame(width: x, height: th)
                 Circle().fill(Color.white).frame(width: kn, height: kn).shadow(color: .black.opacity(0.5), radius: 2).offset(x: x - kn / 2)
                 if big && m.scrub != nil {
-                    Text(ptime(shown)).font(.inter(14, .semibold)).foregroundColor(.white).monospacedDigit()
+                    Text(ptime(shown)).font(pf(L.tv ? 24 : 14, .semibold)).foregroundColor(.white).monospacedDigit()
                         .padding(.horizontal, 9 * k).padding(.vertical, 5 * k)
                         .background(RoundedRectangle(cornerRadius: 6 * k).fill(Color(hex: 0x19191F, alpha: 0.96)))
-                        .fixedSize().position(x: min(max(x, 40 * k), g.size.width - 40 * k), y: -20 * k)
+                        .fixedSize().position(x: min(max(x, (L.tv ? 70 : 40) * k), g.size.width - (L.tv ? 70 : 40) * k), y: (L.tv ? -36 : -20) * k)
                 }
             }.frame(height: g.size.height)
             #if os(iOS)
@@ -511,7 +540,7 @@ struct SeekBar: View {
                 .onChanged { v in drag = true; m.touched(); m.scrub = Double(min(max(0, v.location.x / g.size.width), 1)) * d }
                 .onEnded { _ in drag = false; if let s = m.scrub { m.seekTo(s) } })
             #endif
-        }.frame(height: 24 * k)
+        }.frame(height: L.barBox)
     }
 }
 
@@ -742,6 +771,8 @@ final class PlayerModel: NSObject, ObservableObject {
     @Published var pausedLong = false
     @Published var ccOn = true
     @Published var hasCc = false
+    /// 2026-10-23 User: Untertitel-Knopf nur, wenn es Untertitel oder mehrere Tonspuren gibt
+    var showCcBtn: Bool { hasCc || audioOpts.count > 1 }
     // Prime-Menüs, Tempo, Tonspuren, Altersfreigabe (2026-10-23)
     @Published var sheet: PSheet = .none
     @Published var sheetFocus = 0
@@ -950,8 +981,8 @@ final class PlayerModel: NSObject, ObservableObject {
         guard player != nil, !debugHold, error == nil, scrub == nil, !loading else { return }
         let idle = Date().timeIntervalSince(lastInput)
         if playing {
-            if visible && idle > (keyMode ? 5 : 3) { hideControls() }
-        } else if countdown < 0, info != nil, idle > 6, !pausedLong {
+            if visible && idle > (keyMode ? RemoteCfg.num("player.hideMsRemote", 5000) : RemoteCfg.num("player.hideMsTouch", 3000)) / 1000 { hideControls() }
+        } else if countdown < 0, info != nil, idle > RemoteCfg.num("player.pauseInfoMs", 6000) / 1000, !pausedLong {
             hideControls(); pausedLong = true
         }
     }
@@ -971,7 +1002,7 @@ final class PlayerModel: NSObject, ObservableObject {
 
     private func startCountdown() {
         guard countdown < 0, info?.next != nil else { return }
-        countdown = 5
+        countdown = max(1, Int(RemoteCfg.num("player.autoNextSeconds", 5)))
         nextTimer?.invalidate()
         nextTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] tm in
             Task { @MainActor in
@@ -1048,7 +1079,8 @@ final class PlayerModel: NSObject, ObservableObject {
     }
     var sheetBack: Bool { sheet == .subs || sheet == .audio }
     var sheetGroupLabels: [Int: String] { sheet == .ccau ? [0: "Untertitel", 1: "Audio"] : [:] }
-    private var audioList: [(name: String, on: Bool)] { audioOpts.isEmpty ? [("Deutsch", true)] : audioOpts }
+    /// 2026-10-23 User: Audio nicht immer „Deutsch“ – nur echte Tonspuren, Auswahl nur wenn es mehrere gibt
+    private var audioList: [(name: String, on: Bool)] { audioOpts.count > 1 ? audioOpts : [] }
 
     func sheetItems() -> [SItem] {
         let cc = ccOn && hasCc
@@ -1057,13 +1089,13 @@ final class PlayerModel: NSObject, ObservableObject {
         switch sheet {
         case .none: return []
         case .main:
-            return [SItem(id: "subs", icon: "text.bubble", label: "Untertitel", value: cc ? "Deutsch" : "Aus", chevron: true),
-                    SItem(id: "audio", icon: "waveform", label: "Audiosprache", value: audioList.first { $0.on }?.name ?? "Deutsch", chevron: true),
-                    SItem(id: "speed", icon: "gauge.with.dots.needle.33percent", label: "Geschwindigkeit", value: speed == 1 ? "Normal" : spdTxt(speed), chevron: true, group: 1),
+            return (hasCc ? [SItem(id: "subs", icon: "text.bubble", label: "Untertitel", value: cc ? "Deutsch" : "Aus", chevron: true)] : [])
+                + (audioList.isEmpty ? [] : [SItem(id: "audio", icon: "waveform", label: "Audiosprache", value: audioList.first { $0.on }?.name ?? "", chevron: true)])
+                + [SItem(id: "speed", icon: "gauge.with.dots.needle.33percent", label: "Geschwindigkeit", value: speed == 1 ? "Normal" : spdTxt(speed), chevron: true, group: 1),
                     SItem(id: "report", icon: "flag", label: "Problem melden", chevron: true, group: 2)]
         case .subs: return subs + (hasCc ? [] : [SItem(id: "none", label: "Keine weiteren Untertitel", dis: true)])
         case .audio: return aud.map { SItem(id: $0.id, label: $0.label, sel: $0.sel) }
-        case .ccau: return subs + aud
+        case .ccau: return (hasCc ? subs : []) + aud
         case .speed: return SPEEDS.map { SItem(id: "sp:\($0)", label: spdTxt($0), sel: $0 == speed) }
         }
     }
@@ -1119,7 +1151,7 @@ final class PlayerModel: NSObject, ObservableObject {
 
     enum Key { case ok, playPause, back, left, right, up, down }
 
-    private func topRow() -> [PF] { [.close, .cc, .spd, .set] }
+    private func topRow() -> [PF] { showCcBtn ? [.close, .cc, .spd, .set] : [.close, .spd, .set] }
     private func bottomRow() -> [PF] { [.seek] + (info?.next != nil && !showNext && !showSkip ? [.next] : []) }
     private func overlay() -> PF? { showNext && info?.next != nil ? .nextGo : (showSkip ? .skip : nil) }
 
@@ -1185,7 +1217,7 @@ final class PlayerModel: NSObject, ObservableObject {
             }
             return
         }
-        let step: Double = repeatCount > 16 ? 60 : (repeatCount > 4 ? 30 : 10)
+        let step: Double = repeatCount > 16 ? 60 : (repeatCount > 4 ? 30 : RemoteCfg.num("player.seekSeconds", 10))
         switch k {
         case .playPause: toggle(); show()
         case .back:
@@ -1199,9 +1231,9 @@ final class PlayerModel: NSObject, ObservableObject {
             } else { activate(focus) }
         case .left, .right:
             let d = k == .right ? step : -step
-            if !visible { show(.seek); scrubBy(d) }
-            else if focus == .seek { scrubBy(d) }
-            else if repeatCount == 0 { move(k) }
+            // 2026-10-23 User: 10 s spulen auch ohne erst zur Leiste zu gehen – nur oben bewegt links/rechts den Fokus
+            if visible && topRow().contains(focus) { if repeatCount == 0 { move(k) } }
+            else { show(.seek); scrubBy(d) }
         case .up, .down:
             if !visible { show(overlay() ?? .play) } else { move(k) }
         }

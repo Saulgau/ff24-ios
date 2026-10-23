@@ -126,6 +126,7 @@ struct FF24App: App {
 
     init() {
         URLCache.shared = URLCache(memoryCapacity: 80 << 20, diskCapacity: 400 << 20, diskPath: "ff24-images")   // Bilder
+        RemoteCfg.refresh()   // Player-Maße/Zeiten vom Server (app-config.json)
         #if os(iOS)
         _ = Downloads.shared   // Hintergrund-Downloads nach Neustart wieder verbinden
         #endif
