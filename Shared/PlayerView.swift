@@ -316,8 +316,11 @@ struct PlayerOverlay: View {
 
     var topBar: some View {
         HStack(spacing: L.topGap) {
-            topBtn(.close, "Schließen") { WebIcon.x.frame(width: L.topIcon, height: L.topIcon) } action: { m.onClose?() }
-                .padding(.leading, -10 * k)
+            // 2026-10-23 User: am Fernseher kein ✕ (Zurück-Taste der Fernbedienung)
+            if !L.tv {
+                topBtn(.close, "Schließen") { WebIcon.x.frame(width: L.topIcon, height: L.topIcon) } action: { m.onClose?() }
+                    .padding(.leading, -10 * k)
+            }
             // 2026-10-23 User: Logo oben weg (Pause zeigt Logo + Text); iPhone/iPad nur kurze Titelzeile, Fernseher nichts
             if !L.tv, RemoteCfg.bool("player.titlePhone", true), let i = m.info {
                 Text(i.title + (i.type == "s" && !i.sub.isEmpty ? " · " + i.sub : "")).font(pf(L.titleFont, .semibold)).foregroundColor(.white)
@@ -1151,7 +1154,14 @@ final class PlayerModel: NSObject, ObservableObject {
 
     enum Key { case ok, playPause, back, left, right, up, down }
 
-    private func topRow() -> [PF] { showCcBtn ? [.close, .cc, .spd, .set] : [.close, .spd, .set] }
+    private func topRow() -> [PF] {
+        #if os(tvOS)
+        let x: [PF] = []
+        #else
+        let x: [PF] = [.close]
+        #endif
+        return x + (showCcBtn ? [.cc, .spd, .set] : [.spd, .set])
+    }
     private func bottomRow() -> [PF] { [.seek] + (info?.next != nil && !showNext && !showSkip ? [.next] : []) }
     private func overlay() -> PF? { showNext && info?.next != nil ? .nextGo : (showSkip ? .skip : nil) }
 
