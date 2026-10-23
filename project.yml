@@ -11,7 +11,7 @@ options:
 settings:
   base:
     MARKETING_VERSION: "3.0.0"
-    CURRENT_PROJECT_VERSION: "13"
+    CURRENT_PROJECT_VERSION: "14"
     SWIFT_VERSION: "5.9"
     DEVELOPMENT_TEAM: ""          # eigenes Apple-Team eintragen
     CODE_SIGN_STYLE: Automatic

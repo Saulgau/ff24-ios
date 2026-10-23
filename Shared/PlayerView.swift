@@ -458,13 +458,16 @@ struct PlayerSheet: View {
             .tap { if !it.dis { m.sheetAct(it.id) } }
     }
 
+    /// Kachelbreite: 5 Kacheln + 4 Abstände passen ins Blatt (max. 112)
+    private var tileW: CGFloat { min(112 * k, (min((L.tv ? 640 : 560) * k, L.w) - 32 * k - 48 * k) / 5) }
+
     func tile(_ it: SItem, focused f: Bool) -> some View {
         let fs: CGFloat = L.tv ? 21 : (L.phone ? 17 : 19)
         return VStack(spacing: 6 * k) {
             Text(it.label).font(.inter(fs)).lineLimit(1).fixedSize()
             if it.label == "1x" { Text("Normal").font(.inter(fs * 0.85)).lineLimit(1).fixedSize() }
         }.foregroundColor(f ? FF.dark : .white)
-            .frame(maxWidth: 112 * k).frame(minWidth: 56 * k).aspectRatio(1 / 1.1, contentMode: .fit)
+            .frame(width: tileW, height: tileW * 1.1)
             .background(RoundedRectangle(cornerRadius: 14 * k).fill(f ? Color.white : Color(hex: it.sel ? 0x3C3E44 : 0x34363B)))
             .overlay(RoundedRectangle(cornerRadius: 14 * k).stroke(Color(hex: 0x8B8E94), lineWidth: it.sel && !f ? 2 * k : 0))
             .tap { m.sheetAct(it.id) }
