@@ -72,6 +72,11 @@ final class Router: ObservableObject {
                                : PlayRequest(type: "f", itemId: it.id, start: t.start)
         }
     }
+    /// 2026-10-23: „Von vorne“ – Film bzw. zuletzt angefangene Folge ab 0:00
+    func playFromStart(_ it: Item) {
+        if !it.isSeries { play = PlayRequest(type: "f", itemId: it.id, start: 0); return }
+        if let p = Store.shared.last(it), let s = p.season { play = PlayRequest(type: "s", itemId: it.id, season: s, ep: p.episode ?? 1, start: 0) } else { playItem(it) }
+    }
     func playEpisode(_ id: String, _ s: Int, _ e: Int, start: Double) { play = PlayRequest(type: "s", itemId: id, season: s, ep: e, start: start) }
     func trailer(_ it: Item, _ url: String) { play = PlayRequest(trailer: (url, it.title)) }
     #if os(iOS)

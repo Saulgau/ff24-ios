@@ -435,6 +435,10 @@ struct TVDetail: View {
                         HStack(spacing: 20) {
                             Button { router.playItem(it) } label: { Label(store.playLabel(it), systemImage: it.soon > 0 ? "clock" : "play.fill") }
                                 .buttonStyle(TVActionStyle(primary: it.soon == 0)).focused($focus, equals: "play")
+                            // 2026-10-23 User: „Von vorne“ auf allen Fernsehern, Filme und Serien (nur wenn angefangen)
+                            if it.soon == 0, let p = (it.isSeries ? store.last(it) : store.progress[it.id]), p.pct > 0, p.pct < 95, p.pos > 10 {
+                                Button { router.playFromStart(it) } label: { Label("Von vorne", systemImage: "arrow.counterclockwise") }.buttonStyle(TVActionStyle())
+                            }
                             if let t = trailer {
                                 Button { router.trailer(it, t) } label: { Label("Trailer", systemImage: "film") }.buttonStyle(TVActionStyle())
                             }
