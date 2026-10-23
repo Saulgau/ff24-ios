@@ -147,7 +147,7 @@ struct AccountView: View {
                     let c = store.contItems
                     if c.isEmpty { EmptyState(title: "Jetzt entdecken, später weiterschauen", text: "Was du anfängst, findest du hier auf allen Geräten wieder.") { Cta(label: "Stöbern", icon: nil, height: 48) { router.switchTab("home") }.frame(maxWidth: 260) } }
                     ForEach(c.prefix(100), id: \.0.key) { it, p in
-                        ListRow(it: it, pct: p.pct, trailing: AnyView(Button { store.removeCont(it) } label: { Image(systemName: "xmark").foregroundColor(FF.text2).frame(width: 36, height: 40) }.buttonStyle(FocusStyle()))) { router.open(it) }
+                        ListRow(it: it, pct: p.pct, trailing: AnyView(Button { store.removeCont(it) } label: { Image(systemName: "xmark").foregroundColor(FF.text2).frame(width: 36, height: 40) }.buttonStyle(FocusStyle()))) { router.playItem(it) }
                     }
                 case 1:
                     let l = store.wlItems

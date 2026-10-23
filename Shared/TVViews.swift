@@ -352,7 +352,7 @@ struct TVHome: View {
                     ScrollView(.vertical, showsIndicators: false) {
                         LazyVStack(alignment: .leading, spacing: 34) {
                             ForEach(rows(), id: \.0) { r in
-                                TVRow(title: r.1, items: r.2, top10: r.3, progress: r.0 == "cont", focus: $focus, rowId: r.0, open: router.open)
+                                TVRow(title: r.1, items: r.2, top10: r.3, progress: r.0 == "cont", focus: $focus, rowId: r.0, open: r.0 == "cont" ? router.playItem : router.open)  // 2026-10-23: Weiterschauen direkt in den Player
                             }
                             Color.clear.frame(height: 200)
                         }.padding(.top, 10)
