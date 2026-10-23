@@ -465,6 +465,7 @@ struct Brand: View {
         HStack(spacing: 8) {
             BrandMark(size: 27 * FF.scale)
             Text("FilmFrei24").font(.inter(20, .heavy)).foregroundColor(.white).kerning(-0.3)
+            BetaTag()
         }
     }
 }
@@ -713,3 +714,15 @@ struct Toast: ViewModifier {
     }
 }
 extension View { func toast(_ t: Binding<String?>) -> some View { modifier(Toast(text: t)) } }
+
+/// 2026-10-23 User: Apps als Beta kennzeichnen. Abschaltbar ohne neue Version: app-config.json "beta": false
+struct BetaTag: View {
+    var size: CGFloat = 11
+    var body: some View {
+        if RemoteCfg.bool("beta", true) {
+            Text("BETA").font(.system(size: size * FF.scale, weight: .heavy)).kerning(0.6).foregroundColor(Color(hex: 0x111111))
+                .padding(.horizontal, 6 * FF.scale).padding(.vertical, 2 * FF.scale)
+                .background(RoundedRectangle(cornerRadius: 5 * FF.scale).fill(Color(hex: 0xF59E0B)))
+        }
+    }
+}

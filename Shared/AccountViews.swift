@@ -320,7 +320,7 @@ struct LoginView: View {
         ScrollView {
             VStack(spacing: 0) {
                 HStack { BackButton(); Spacer() }.padding(.vertical, 16)
-                HStack(spacing: 10) { BrandMark(size: 36 * FF.scale); Text("FilmFrei24").font(.inter(26, .heavy)).foregroundColor(.white) }.padding(.bottom, 24)
+                HStack(spacing: 10) { BrandMark(size: 36 * FF.scale); Text("FilmFrei24").font(.inter(26, .heavy)).foregroundColor(.white); BetaTag(size: 13) }.padding(.bottom, 24)
                 #if os(tvOS)
                 if !register && !emailForm {
                     TVQRLogin().padding(.vertical, 30)

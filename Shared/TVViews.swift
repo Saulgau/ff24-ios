@@ -243,7 +243,7 @@ struct TVNav: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            HStack(spacing: 10) { BrandMark(size: 34); Text("FilmFrei24").font(.tv(28, .heavy)).foregroundColor(.white) }.padding(.trailing, 26)
+            HStack(spacing: 10) { BrandMark(size: 34); Text("FilmFrei24").font(.tv(28, .heavy)).foregroundColor(.white); BetaTag(size: 15 / FF.scale) }.padding(.trailing, 26)
             ForEach(TVNav.tabs, id: \.0) { t in
                 Button { router.switchTab(t.0) } label: {
                     Group {
