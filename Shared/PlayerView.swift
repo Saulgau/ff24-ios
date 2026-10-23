@@ -2,12 +2,17 @@ import SwiftUI
 import AVKit
 import MediaPlayer
 
-// Eigener Player wie der Web-PC-Player (beta/index.php .plr), 2026-10-22 (User: „100 % gleich wie PC-Player, aber nativ“).
+// Eigener Player wie Prime Video (2026-10-23, User-Screenshots) = gleich wie Website (beta/index.php .plr).
 // Bild über AVPlayerLayer (Hardware-Dekodierung durch AVFoundation), Steuerung selbst gezeichnet.
 // Apple TV: eigenes Fokus-Modell (PF) – OK/Klick drückt immer den markierten Knopf; erscheint
 // „Intro überspringen“ oder „Nächste Folge“, bekommt dieser Knopf den Fokus (wie Netflix/Prime).
 
-enum PF { case rep, cc, air, close, rw, play, ff, seek, next, skip, nextGo }
+enum PF { case close, cc, spd, set, rw, play, ff, seek, next, skip, nextGo }
+
+enum PSheet { case none, main, ccau, speed, subs, audio }
+
+/// Eine Zeile im Menü-Blatt; id = Aktion (subs, audio, speed, report, cc:0/1, au:N, sp:X)
+struct SItem: Identifiable { let id: String; var icon: String? = nil; let label: String; var value = ""; var chevron = false; var sel = false; var dis = false; var group = 0 }
 
 struct PlayerView: View {
     let req: PlayRequest
@@ -98,8 +103,8 @@ enum StatusBar {
     }
 }
 
-/// Maße nach echter Bildschirmgröße (vorher feste Web-px → im Hochformat Knöpfe außerhalb des Bildschirms).
-/// tvOS: alles × FF.scale, Ränder kommen aus dem Overscan-Sicherheitsbereich.
+/// Maße nach echter Bildschirmgröße; Handy = kleinere Maße, nichts außerhalb des sicheren Bereichs.
+/// tvOS: alles × FF.scale (Schriften skaliert .inter selbst), Ränder kommen aus dem Overscan-Sicherheitsbereich.
 struct PLayout {
     let w: CGFloat, h: CGFloat
     let k = FF.scale
@@ -111,24 +116,33 @@ struct PLayout {
     var portrait: Bool { h > w }
     /// Handy (quer oder hochkant)
     var phone: Bool { !tv && min(w, h) < 500 }
-    var edge: CGFloat { tv ? 0 : (phone ? 12 : 24) }
-    var topBtn: CGFloat { tv ? 52 * k : (phone ? 40 : 46) }
-    var topIcon: CGFloat { tv ? 28 * k : (phone ? 22 : 25) }
-    var titleFont: CGFloat { tv ? 22 : (phone ? 16 : 19) }
+    var edge: CGFloat { tv ? 0 : (phone ? 16 : max(28, w * 0.045)) }
+    var topBtn: CGFloat { tv ? 52 * k : (phone ? 44 : 48) }
+    var topIcon: CGFloat { tv ? 28 * k : (phone ? 24 : 26) }
+    var topGap: CGFloat { tv ? 14 * k : (phone ? min(14, w * 0.02) : 18) }
+    var spdFont: CGFloat { tv ? 22 : (phone ? 21 : 23) }
+    var titleFont: CGFloat { tv ? 26 : (phone ? 20 : 26) }
     var subFont: CGFloat { tv ? 16 : (phone ? 13 : 15) }
-    var playSize: CGFloat { tv ? 54 * k : (phone ? 52 : 68) }
-    var seekSize: CGFloat { phone ? 38 : 48 }
-    var midGap: CGFloat { phone ? min(56, w * 0.1) : 76 }
+    var logoH: CGFloat { tv ? 64 * k : (phone ? 40 : 56) }
+    var logoW: CGFloat { tv ? 300 * k : (phone ? w * (portrait ? 0.48 : 0.3) : min(280, w * 0.26)) }
+    var playSize: CGFloat { tv ? 80 * k : (phone ? 64 : 84) }
+    var seekSize: CGFloat { phone ? 40 : 46 }
+    var midGap: CGFloat { phone ? min(56, w * 0.09) : 96 }
     var timeFont: CGFloat { tv ? 16 : (phone ? 13 : 15) }
-    var btnFont: CGFloat { tv ? 17 : (phone ? 14 : 16) }
-    var btnH: CGFloat { tv ? 46 * k : (phone ? 40 : 44) }
+    var btnFont: CGFloat { tv ? 17 : (phone ? 15 : 16) }
+    var btnH: CGFloat { tv ? 48 * k : (phone ? 42 : 48) }
     var cueFont: CGFloat { tv ? 24 : (phone ? 17 : 22) }
-    var cueUp: CGFloat { tv ? 110 * k : (portrait ? 110 : (phone ? 70 : 96)) }
-    /// Abstand des Nächste-Folge-/Intro-Knopfs vom unteren Rand (über der Leiste)
-    var overBar: CGFloat { tv ? 70 * k : (portrait ? 96 : (phone ? 58 : 76)) }
+    var cueUp: CGFloat { tv ? 140 * k : (portrait ? 130 : (phone ? 104 : 130)) }
+    /// Abstand der unteren Zeile (Pille / Intro-Knopf) vom Rand
+    var bottomPad: CGFloat { tv ? 0 : (phone ? 6 : 16) }
+    var fskFont: CGFloat { tv ? 22 : (phone ? 16 : 20) }
+    var fskTFont: CGFloat { tv ? 18 : (phone ? 14 : 17) }
 }
 
-// MARK: - Oberfläche
+let SPEEDS: [Float] = [0.75, 1, 1.25, 1.5, 2]
+func spdTxt(_ r: Float) -> String { r == 1 ? "1x" : (r == r.rounded() ? String(format: "%.0fx", r) : String(format: "%gx", r)) }
+
+// MARK: - Oberfläche (wie Prime Video, User-Screenshots 2026-10-23; gleich wie Website beta/index.php .plr)
 
 private extension View {
     /// Antippen nur auf iPhone/iPad – auf Apple TV gibt es nur die Fernbedienung (sonst stiehlt SwiftUI den Fokus).
@@ -145,12 +159,13 @@ struct PlayerOverlay: View {
     @ObservedObject var m: PlayerModel
     let L: PLayout
     let onReport: () -> Void
+    @State private var logoFailed = ""
     private var k: CGFloat { L.k }
     private var key: Bool { m.keyMode }
 
     var body: some View {
         ZStack {
-            // Doppeltipp links/rechts = 10 s, einfacher Tipp = Steuerung ein/aus (iPhone/iPad)
+            // Prime: Tippen blendet nur die Leiste ein/aus; Doppeltipp links/rechts = 10 s (iPhone/iPad)
             #if os(iOS)
             Color.clear.contentShape(Rectangle()).ignoresSafeArea()
                 .gesture(SpatialTapGesture(count: 2).onEnded { v in m.touched(); m.seekBy(v.location.x < L.w / 2 ? -10 : 10) }
@@ -160,21 +175,27 @@ struct PlayerOverlay: View {
             // Pause-Infos (nur wenn Steuerung weg ist, nie über den Knöpfen)
             if m.pausedLong && !m.visible, let i = m.info { pauseInfo(i).transition(.opacity) }
 
-            controls.opacity(m.visible ? 1 : 0).allowsHitTesting(m.visible)
+            controls.opacity(m.visible && !m.rating ? 1 : 0).allowsHitTesting(m.visible && !m.rating)
 
             if m.loading && m.error == nil {
                 ProgressView().tint(.white).scaleEffect(1.6 * k).allowsHitTesting(false)
             }
 
-            // Nächste Folge / Intro überspringen (auch bei ausgeblendeter Steuerung)
+            // Nächste Folge / Intro überspringen: in der Pillen-Zeile unten rechts, auch bei ausgeblendeter Steuerung
             VStack { Spacer(); HStack { Spacer()
                 if m.showNext && m.info?.next != nil { nextButton }
-                else if m.showSkip { skipButton }
+                else if m.showSkip && !m.rating { skipButton }
             } }
-            .padding(.trailing, L.edge).padding(.bottom, m.visible ? L.overBar : L.edge + 8)
+            .padding(.trailing, L.edge).padding(.bottom, L.bottomPad)
+
+            if m.rating, let i = m.info, !i.fskR.isEmpty { ratingView(i).transition(.opacity) }
+
+            if m.sheet != .none { PlayerSheet(m: m, L: L).transition(.opacity) }
         }
-        .animation(.easeInOut(duration: 0.3), value: m.visible)
+        .animation(.easeInOut(duration: 0.25), value: m.visible)
         .animation(.easeInOut(duration: 0.4), value: m.pausedLong)
+        .animation(.easeInOut(duration: 0.5), value: m.rating)
+        .animation(.easeOut(duration: 0.2), value: m.sheet)
     }
 
     func pauseInfo(_ i: PlayInfo) -> some View {
@@ -184,7 +205,7 @@ struct PlayerOverlay: View {
                            startPoint: L.portrait ? .bottom : .leading, endPoint: L.portrait ? .top : .trailing).ignoresSafeArea()
             VStack(alignment: .leading, spacing: 0) {
                 if !i.logo.isEmpty {
-                    Img(url: i.logo, mode: .fit).frame(maxWidth: min(360 * k, maxW), maxHeight: (L.phone ? 90 : 140) * k, alignment: .bottomLeading).padding(.bottom, 14 * k)
+                    Img(url: i.logo, mode: .fit, align: .bottomLeading).frame(width: min(360 * k, maxW), height: (L.phone ? 90 : 140) * k).padding(.bottom, 14 * k)
                 } else {
                     Text(i.title).font(.inter(L.phone ? 26 : 34, .heavy)).foregroundColor(.white).lineLimit(2).minimumScaleFactor(0.7).padding(.bottom, 10 * k)
                 }
@@ -198,110 +219,153 @@ struct PlayerOverlay: View {
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading).allowsHitTesting(false)
     }
 
+    /// Altersfreigabe beim Start (Prime: Kasten oben links + Hinweise), Steuerung so lange aus
+    func ratingView(_ i: PlayInfo) -> some View {
+        let box = Text("ALTERSFREIGABE " + i.fskR).font(.inter(L.fskFont, .semibold)).lineLimit(1).fixedSize()
+            .padding(.horizontal, (L.phone ? 10 : 14) * k).padding(.vertical, (L.phone ? 6 : 9) * k)
+            .background(RoundedRectangle(cornerRadius: 12 * k).fill(Color.black.opacity(0.35)))
+            .overlay(RoundedRectangle(cornerRadius: 12 * k).stroke(Color.white.opacity(0.55), lineWidth: 2 * k))
+        let note = Text(i.fskD).font(.inter(L.fskTFont, .medium)).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+            .shadow(color: .black.opacity(0.8), radius: 3)
+        return VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if L.portrait {
+                    VStack(alignment: .leading, spacing: 10 * k) { box; if !i.fskD.isEmpty { note } }
+                } else {
+                    HStack(spacing: (L.phone ? 14 : 24) * k) { box; if !i.fskD.isEmpty { note.frame(maxWidth: 720 * k, alignment: .leading) } }
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            Spacer()
+        }.foregroundColor(.white).padding(.horizontal, L.edge).padding(.top, L.tv ? 0 : 10).allowsHitTesting(false)
+    }
+
     // ── Steuerung ──
     var controls: some View {
         ZStack {
-            VStack(spacing: 0) {
-                LinearGradient(colors: [.black.opacity(0.75), .clear], startPoint: .top, endPoint: .bottom).frame(height: L.topBtn + 70 * k)
+            LinearGradient(stops: [.init(color: .black.opacity(0.7), location: 0), .init(color: .black.opacity(0.35), location: 0.22),
+                                   .init(color: .black.opacity(0.3), location: 0.6), .init(color: .black.opacity(0.75), location: 1)],
+                           startPoint: .top, endPoint: .bottom).ignoresSafeArea().allowsHitTesting(false)
+
+            // oben: ✕ links, rechts (AirPlay) · Untertitel · 1x · Zahnrad; darunter Logo bzw. Titel
+            VStack(alignment: .leading, spacing: 0) {
+                topBar
+                titleBlock.padding(.top, (L.phone ? 4 : 12) * k)
                 Spacer()
-                LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom).frame(height: L.overBar + 60 * k)
-            }.ignoresSafeArea().allowsHitTesting(false)
+            }.padding(.horizontal, L.edge).padding(.top, L.tv ? 0 : (L.phone ? 4 : 12))
 
-            // oben: Titel mittig, Knöpfe rechts (Melden, Untertitel, AirPlay, Schließen)
-            VStack { topBar; Spacer() }.padding(.horizontal, L.edge).padding(.top, L.tv ? 0 : (L.phone ? 6 : 14))
-
-            // Mitte: iPhone/iPad 10 zurück / Play / 10 vor, Fernseher nur Play/Pause (Spulen per Fernbedienung)
+            // Mitte: 10 zurück · Play im dunklen Kreis · 10 vor; Fernseher nur Play/Pause (Spulen per Fernbedienung)
             HStack(spacing: L.midGap) {
-                if !L.tv { midBtn(.rw, L.seekSize) { s in WebIcon.rw.frame(width: s, height: s) } action: { m.seekBy(-10) } }
-                midBtn(.play, L.playSize) { s in
-                    Group { if m.loading { Color.clear } else if m.playing { WebIcon.pause } else { WebIcon.play } }.frame(width: s, height: s)
+                if !L.tv { midBtn(.rw) { WebIcon.rw.frame(width: L.seekSize, height: L.seekSize) } action: { m.seekBy(-10) } }
+                midBtn(.play, circle: L.playSize) {
+                    Group { if m.loading { Color.clear } else if m.playing { WebIcon.pause } else { WebIcon.play } }
+                        .frame(width: L.playSize * 0.44, height: L.playSize * 0.44)
                 } action: { m.toggle() }
-                if !L.tv { midBtn(.ff, L.seekSize) { s in WebIcon.ff.frame(width: s, height: s) } action: { m.seekBy(10) } }
+                if !L.tv { midBtn(.ff) { WebIcon.ff.frame(width: L.seekSize, height: L.seekSize) } action: { m.seekBy(10) } }
             }
 
-            // unten: Zeit | Leiste | Rest  (+ Nächste Folge)
-            VStack(spacing: 10) { Spacer()
-                if let n = m.info?.next, !m.showNext, L.portrait {
-                    HStack { Spacer(); nextSmall(n) }
-                }
-                HStack(spacing: (L.phone ? 10 : 16) * k) {
-                    let shown = m.scrub ?? m.pos
-                    Text(ptime(shown)).font(.inter(L.timeFont, .semibold)).monospacedDigit().lineLimit(1).fixedSize()
-                    SeekBar(m: m, shown: shown)
-                    Text("-" + ptime(max(0, m.dur - shown))).font(.inter(L.timeFont, .semibold)).monospacedDigit().lineLimit(1).fixedSize()
-                    if let n = m.info?.next, !m.showNext, !L.portrait { nextSmall(n) }
-                }
+            // unten: dünne Leiste, Zeiten darunter, Pille rechts
+            VStack(spacing: 0) {
+                Spacer()
+                let shown = m.scrub ?? m.pos
+                SeekBar(m: m, shown: shown)
+                HStack {
+                    Text(ptime(shown)).monospacedDigit().lineLimit(1).fixedSize()
+                    Spacer()
+                    Text("-" + ptime(max(0, m.dur - shown))).monospacedDigit().lineLimit(1).fixedSize()
+                }.font(.inter(L.timeFont, .medium)).padding(.top, 2 * k)
+                HStack { Spacer()
+                    if let n = m.info?.next, !m.showNext, !m.showSkip { nextPill(n) }
+                }.frame(height: L.btnH).padding(.top, 6 * k)
             }.foregroundColor(.white)
-                .padding(.horizontal, L.edge + (L.tv ? 0 : 4)).padding(.bottom, L.tv ? 0 : (L.phone ? 4 : 12))
+                .padding(.horizontal, L.edge).padding(.bottom, L.bottomPad)
         }
     }
 
     var topBar: some View {
-        let n = 2 + (m.hasCc ? 1 : 0) + (L.tv ? 0 : 1)
-        let side = CGFloat(n) * L.topBtn + CGFloat(n - 1) * 6 * k
-        return ZStack {
-            VStack(spacing: 2 * k) {
-                Text(m.info?.title ?? "").font(.inter(L.titleFont, .bold)).lineLimit(1).minimumScaleFactor(0.8)
-                if let s = m.info?.sub, !s.isEmpty { Text(s).font(.inter(L.subFont)).foregroundColor(Color(hex: 0xD4D8DC)).lineLimit(1) }
-            }.foregroundColor(.white)
-                // Hochformat: Titel links neben den Knöpfen, quer: mittig mit gleichem Abstand zu beiden Seiten
-                .frame(maxWidth: .infinity, alignment: L.portrait ? .leading : .center)
-                .padding(.leading, L.portrait ? 4 : side + 12).padding(.trailing, side + 12)
-            HStack(spacing: 6 * k) {
-                Spacer()
-                roundBtn(.rep, "Problem melden") { WebIcon.flag } action: { onReport() }
-                if m.hasCc { roundBtn(.cc, "Untertitel", active: m.ccOn) { WebIcon.cc } action: { m.toggleCc() } }
-                #if os(iOS)
-                AirPlayButton().frame(width: L.topBtn, height: L.topBtn)
-                #endif
-                roundBtn(.close, "Schließen") { WebIcon.x } action: { m.onClose?() }
-            }
-        }.frame(minHeight: L.topBtn)
+        HStack(spacing: L.topGap) {
+            topBtn(.close, "Schließen") { WebIcon.x.frame(width: L.topIcon, height: L.topIcon) } action: { m.onClose?() }
+                .padding(.leading, -10 * k)
+            Spacer(minLength: 0)
+            #if os(iOS)
+            AirPlayButton().frame(width: L.topBtn, height: L.topBtn)
+            #endif
+            topBtn(.cc, "Untertitel und Audio") {
+                Image(systemName: m.ccOn && m.hasCc ? "text.bubble.fill" : "text.bubble").font(.system(size: L.topIcon * 0.92, weight: .regular))
+            } action: { m.openSheet(.ccau) }
+            topBtn(.spd, "Geschwindigkeit", wide: true) { Text(spdTxt(m.speed)).font(.inter(L.spdFont)).lineLimit(1).fixedSize() } action: { m.openSheet(.speed) }
+            topBtn(.set, "Einstellungen") { Image(systemName: "gearshape.fill").font(.system(size: L.topIcon * 0.95)) } action: { m.openSheet(.main) }
+                .padding(.trailing, -10 * k)
+        }.frame(height: L.topBtn)
     }
 
-    func nextSmall(_ n: (season: Int, ep: Int, title: String, thumb: String)) -> some View {
+    /// Oben links Logo (wie Website #p-tlogo), Titeltext nur ohne Logo; Serien: „S1 F2 · Titel“ darunter.
+    @ViewBuilder var titleBlock: some View {
+        if let i = m.info {
+            VStack(alignment: .leading, spacing: 8 * k) {
+                if !i.logo.isEmpty && logoFailed != i.logo {
+                    Img(url: i.logo, mode: .fit, align: .leading, onFail: { logoFailed = i.logo }).frame(width: L.logoW, height: L.logoH)
+                } else {
+                    Text(i.title).font(.inter(L.titleFont, .heavy)).lineLimit(2).minimumScaleFactor(0.8)
+                }
+                if i.type == "s" && !i.sub.isEmpty {
+                    Text(i.sub).font(.inter(L.subFont, .semibold)).foregroundColor(Color(hex: 0xE2E5E8)).lineLimit(1)
+                }
+            }.foregroundColor(.white).frame(maxWidth: L.portrait ? L.w * 0.9 : L.w * 0.46, alignment: .leading).allowsHitTesting(false)
+        }
+    }
+
+    /// Dunkle Pille unten rechts (wie Prime „X-Ray“): hier „Nächste Folge“.
+    func nextPill(_ n: (season: Int, ep: Int, title: String, thumb: String)) -> some View {
         let f = key && m.focus == .next
         return HStack(spacing: 8 * k) {
-            Text("Nächste Folge").font(.inter(L.btnFont - 1, .bold)).lineLimit(1).fixedSize()
+            Text("Nächste Folge").font(.inter(L.btnFont, .semibold)).lineLimit(1).fixedSize()
             WebIcon.next.frame(width: 18 * k, height: 18 * k)
         }.foregroundColor(f ? FF.dark : .white)
-            .padding(.horizontal, 14 * k).frame(height: L.btnH - 4 * k)
-            .background(RoundedRectangle(cornerRadius: 8 * k).fill(f ? Color.white : Color(hex: 0x33373D, alpha: 0.85)))
+            .padding(.horizontal, (L.phone ? 18 : 24) * k).frame(height: L.btnH)
+            .background(Capsule().fill(f ? Color.white : Color(hex: 0x34363B, alpha: 0.92)))
             .scaleEffect(f ? 1.06 : 1).tap { m.playNext() }.accessibilityLabel("Nächste Folge S\(n.season) F\(n.ep)")
     }
 
-    func roundBtn<I: View>(_ f: PF, _ label: String, active: Bool = false, @ViewBuilder icon: () -> I, action: @escaping () -> Void) -> some View {
+    /// Knöpfe oben ohne Kreis; Fokus = weißer Kreis/Pille.
+    func topBtn<I: View>(_ f: PF, _ label: String, wide: Bool = false, @ViewBuilder icon: () -> I, action: @escaping () -> Void) -> some View {
         let on = key && m.focus == f
-        return icon().frame(width: L.topIcon, height: L.topIcon)
-            .foregroundColor(on ? FF.dark : (active ? FF.blue : .white))
-            .frame(width: L.topBtn, height: L.topBtn).background(Circle().fill(on ? Color.white : Color.clear))
-            .scaleEffect(on ? 1.1 : 1).animation(.easeOut(duration: 0.15), value: on)
+        return icon()
+            .foregroundColor(on ? FF.dark : .white)
+            .padding(.horizontal, wide ? 8 * k : 0)
+            .frame(minWidth: L.topBtn, minHeight: L.topBtn, maxHeight: L.topBtn)
+            .background(Capsule().fill(on ? Color.white : Color.clear))
+            .scaleEffect(on ? 1.08 : 1).animation(.easeOut(duration: 0.15), value: on)
             .tap(action).accessibilityLabel(label)
     }
 
-    /// Ohne Kreis/Umrandung; Fernseher-Fokus = etwas größer + leuchtender Schatten.
-    func midBtn<I: View>(_ f: PF, _ s: CGFloat, @ViewBuilder icon: (CGFloat) -> I, action: @escaping () -> Void) -> some View {
+    /// Mitte: Play im dunklen Kreis (Prime), 10-s-Knöpfe frei; Fokus = weißer Rand + größer.
+    func midBtn<I: View>(_ f: PF, circle: CGFloat? = nil, @ViewBuilder icon: () -> I, action: @escaping () -> Void) -> some View {
         let on = key && m.focus == f
-        return icon(s).foregroundColor(.white)
-            .shadow(color: on ? .white.opacity(0.55) : .black.opacity(0.5), radius: on ? 14 * k : 10, y: on ? 0 : 2)
-            .padding(10 * k)
-            .scaleEffect(on ? 1.14 : 1).animation(.easeOut(duration: 0.15), value: on)
+        return Group {
+            if let c = circle {
+                icon().frame(width: c, height: c).background(Circle().fill(Color(hex: on ? 0x3A3D43 : 0x26282D, alpha: on ? 0.95 : 0.82)))
+            } else {
+                icon().padding(8 * k).background(Circle().fill(Color.white.opacity(on ? 0.2 : 0)))
+            }
+        }.foregroundColor(.white)
+            .overlay(Circle().stroke(Color.white, lineWidth: on ? 3 * k : 0))
+            .scaleEffect(on ? 1.12 : 1).animation(.easeOut(duration: 0.15), value: on)
             .tap(action)
     }
 
-    /// Weißer Knopf unten rechts (Intro/Rückblick überspringen, Nächste Folge) – Text nie umbrechen.
+    /// Weiße Pille unten rechts (Intro/Rückblick überspringen, Nächste Folge) – Text nie umbrechen.
     func whiteButton(_ label: String, icon: some View, focused: Bool, progress: Double?, action: @escaping () -> Void) -> some View {
         HStack(spacing: 10 * k) {
             Text(label).font(.inter(L.btnFont, .bold)).lineLimit(1).fixedSize()
             icon.frame(width: 18 * k, height: 18 * k)
-        }.foregroundColor(FF.dark).padding(.horizontal, 18 * k).frame(height: L.btnH)
+        }.foregroundColor(Color(hex: 0x0F1114)).padding(.horizontal, 22 * k).frame(height: L.btnH)
             .background(
                 ZStack(alignment: .leading) {
-                    Color.white.opacity(focused ? 1 : 0.92)
+                    Color(hex: 0xF0F1F3).opacity(focused ? 1 : 0.95)
                     if let p = progress { GeometryReader { g in Color(hex: 0xCFD6DE).frame(width: g.size.width * p) }.animation(.linear(duration: 1), value: p) }
-                }.clipShape(RoundedRectangle(cornerRadius: 8 * k))
+                }.clipShape(Capsule())
             )
-            .overlay(RoundedRectangle(cornerRadius: 8 * k).stroke(FF.blue, lineWidth: focused && key ? 3 * k : 0))
+            .overlay(Capsule().stroke(FF.blue, lineWidth: focused && key ? 3 * k : 0))
             .shadow(color: .black.opacity(0.45), radius: 12 * k, y: 6 * k)
             .scaleEffect(focused && key ? 1.07 : 1).animation(.easeOut(duration: 0.15), value: focused)
             .fixedSize()
@@ -320,12 +384,100 @@ struct PlayerOverlay: View {
     }
 }
 
-func ptime(_ t: Double) -> String {
-    let s = Int(max(0, t.isFinite ? t : 0))
-    return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s % 3600 / 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
+/// Menü als Blatt von unten (Prime): Griff, Titel, graue Gruppen; Geschwindigkeit als 5 Kacheln.
+/// Apple TV: Fokus über m.sheetFocus (Fernbedienung in PlayerModel.press), iPhone/iPad: Antippen.
+struct PlayerSheet: View {
+    @ObservedObject var m: PlayerModel
+    let L: PLayout
+    private var k: CGFloat { L.k }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.62).ignoresSafeArea().tap { m.closeSheet() }
+            VStack(spacing: 0) {
+                Capsule().fill(Color(hex: 0x55585E)).frame(width: 44 * k, height: 5 * k).padding(.top, 12 * k).padding(.bottom, 14 * k).tap { m.closeSheet() }
+                ViewThatFits(in: .vertical) {
+                    content
+                    ScrollView(showsIndicators: false) { content }
+                }
+            }
+            .padding(.horizontal, 16 * k)
+            .frame(maxWidth: min((L.tv ? 640 : 560) * k, L.w))
+            .background(RoundedRectangle(cornerRadius: 26 * k).fill(Color(hex: 0x1B1C20)).padding(.bottom, -60 * k).ignoresSafeArea(edges: .bottom))
+            .frame(maxHeight: L.h - 24 * k, alignment: .bottom)
+        }.foregroundColor(.white)
+    }
+
+    @ViewBuilder var content: some View {
+        let items = m.sheetItems()
+        VStack(spacing: 0) {
+            if let t = m.sheetTitle {
+                ZStack {
+                    Text(t).font(.inter(L.phone ? 20 : 24, .heavy)).lineLimit(1).padding(.horizontal, 44 * k)
+                    if m.sheetBack {
+                        HStack {
+                            Image(systemName: "chevron.left").font(.system(size: 20 * k, weight: .semibold)).frame(width: 40 * k, height: 40 * k)
+                                .tap { m.openSheet(.main) }
+                            Spacer()
+                        }
+                    }
+                }.padding(.top, 2 * k).padding(.bottom, 18 * k)
+            }
+            if m.sheet == .speed {
+                HStack(spacing: 12 * k) {
+                    ForEach(Array(items.enumerated()), id: \.1.id) { n, it in tile(it, focused: m.keyMode && m.sheetFocus == n) }
+                }.padding(.bottom, 18 * k)
+            } else {
+                let groups = Array(Set(items.map(\.group))).sorted()
+                ForEach(groups, id: \.self) { g in
+                    VStack(alignment: .leading, spacing: 0) {
+                        if let lbl = m.sheetGroupLabels[g] {
+                            Text(lbl.uppercased()).font(.inter(12, .semibold)).foregroundColor(Color(hex: 0x9A9EA5)).padding(.leading, 20 * k).padding(.top, 8 * k).padding(.bottom, 2 * k)
+                        }
+                        ForEach(Array(items.enumerated()).filter { $0.1.group == g }, id: \.1.id) { n, it in row(it, focused: m.keyMode && m.sheetFocus == n) }
+                    }.padding(.vertical, 6 * k).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 16 * k).fill(Color(hex: 0x33353B))).padding(.bottom, 14 * k)
+                }
+            }
+        }.padding(.bottom, 8 * k)
+    }
+
+    func row(_ it: SItem, focused f: Bool) -> some View {
+        let fs: CGFloat = L.tv ? 21 : (L.phone ? 17 : 19)
+        return HStack(spacing: 16 * k) {
+            if let ic = it.icon { Image(systemName: ic).font(.system(size: 22 * k)).frame(width: 30 * k) }
+            Text(it.label).font(.inter(fs)).lineLimit(1).opacity(it.dis ? 0.6 : 1)
+            Spacer(minLength: 8 * k)
+            if !it.value.isEmpty { Text(it.value).font(.inter(fs * 0.95)).foregroundColor(f ? Color(hex: 0x4A4E55) : Color(hex: 0xA3A7AD)).lineLimit(1).fixedSize() }
+            if it.chevron { Image(systemName: "chevron.right").font(.system(size: 17 * k, weight: .semibold)) }
+            else if it.sel { Image(systemName: "checkmark").font(.system(size: 17 * k, weight: .semibold)) }
+        }.foregroundColor(f ? FF.dark : .white)
+            .padding(.horizontal, 14 * k).frame(minHeight: (L.tv ? 58 : 50) * k)
+            .background(RoundedRectangle(cornerRadius: 12 * k).fill(f ? Color.white : Color.clear))
+            .padding(.horizontal, 6 * k)
+            .tap { if !it.dis { m.sheetAct(it.id) } }
+    }
+
+    func tile(_ it: SItem, focused f: Bool) -> some View {
+        let fs: CGFloat = L.tv ? 21 : (L.phone ? 17 : 19)
+        return VStack(spacing: 6 * k) {
+            Text(it.label).font(.inter(fs)).lineLimit(1).fixedSize()
+            if it.label == "1x" { Text("Normal").font(.inter(fs * 0.85)).lineLimit(1).fixedSize() }
+        }.foregroundColor(f ? FF.dark : .white)
+            .frame(maxWidth: 112 * k).frame(minWidth: 56 * k).aspectRatio(1 / 1.1, contentMode: .fit)
+            .background(RoundedRectangle(cornerRadius: 14 * k).fill(f ? Color.white : Color(hex: it.sel ? 0x3C3E44 : 0x34363B)))
+            .overlay(RoundedRectangle(cornerRadius: 14 * k).stroke(Color(hex: 0x8B8E94), lineWidth: it.sel && !f ? 2 * k : 0))
+            .tap { m.sheetAct(it.id) }
+    }
 }
 
-/// .seek: Spur 4 (Fokus/Ziehen 8 + Knopf), weiß gesehen, 40 % gepuffert.
+/// Zeiten wie Prime: 00:07 / 01:50:37
+func ptime(_ t: Double) -> String {
+    let s = Int(max(0, t.isFinite ? t : 0))
+    return s >= 3600 ? String(format: "%02d:%02d:%02d", s / 3600, s % 3600 / 60, s % 60) : String(format: "%02d:%02d", s / 60, s % 60)
+}
+
+/// .seek: dünne Spur (5) + weißer Punkt; Fokus/Ziehen größer + Zeit-Blase.
 struct SeekBar: View {
     @ObservedObject var m: PlayerModel
     let shown: Double
@@ -337,18 +489,17 @@ struct SeekBar: View {
             let big = drag || (m.keyMode && m.focus == .seek)
             let d = max(m.dur, 1)
             let x = g.size.width * CGFloat(min(1, max(0, shown / d)))
+            let th = (big ? 8 : 5) * k, kn = (big ? 18 : 14) * k
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.3)).frame(height: (big ? 8 : 4) * k)
-                Capsule().fill(Color.white.opacity(0.4)).frame(width: g.size.width * CGFloat(min(1, m.buffered / d)), height: (big ? 8 : 4) * k)
-                Capsule().fill(Color.white).frame(width: x, height: (big ? 8 : 4) * k)
-                if big {
-                    Circle().fill(Color.white).frame(width: 18 * k, height: 18 * k).offset(x: x - 9 * k)
-                    if m.scrub != nil {
-                        Text(ptime(shown)).font(.inter(14, .semibold)).foregroundColor(.white).monospacedDigit()
-                            .padding(.horizontal, 9 * k).padding(.vertical, 5 * k)
-                            .background(RoundedRectangle(cornerRadius: 5 * k).fill(Color(hex: 0x191E25, alpha: 0.96)))
-                            .fixedSize().position(x: min(max(x, 40 * k), g.size.width - 40 * k), y: -20 * k)
-                    }
+                Capsule().fill(Color.white.opacity(0.28)).frame(height: th)
+                Capsule().fill(Color.white.opacity(0.22)).frame(width: g.size.width * CGFloat(min(1, m.buffered / d)), height: th)
+                Capsule().fill(Color.white).frame(width: x, height: th)
+                Circle().fill(Color.white).frame(width: kn, height: kn).shadow(color: .black.opacity(0.5), radius: 2).offset(x: x - kn / 2)
+                if big && m.scrub != nil {
+                    Text(ptime(shown)).font(.inter(14, .semibold)).foregroundColor(.white).monospacedDigit()
+                        .padding(.horizontal, 9 * k).padding(.vertical, 5 * k)
+                        .background(RoundedRectangle(cornerRadius: 6 * k).fill(Color(hex: 0x19191F, alpha: 0.96)))
+                        .fixedSize().position(x: min(max(x, 40 * k), g.size.width - 40 * k), y: -20 * k)
                 }
             }.frame(height: g.size.height)
             #if os(iOS)
@@ -357,7 +508,7 @@ struct SeekBar: View {
                 .onChanged { v in drag = true; m.touched(); m.scrub = Double(min(max(0, v.location.x / g.size.width), 1)) * d }
                 .onEnded { _ in drag = false; if let s = m.scrub { m.seekTo(s) } })
             #endif
-        }.frame(height: 28 * k)
+        }.frame(height: 24 * k)
     }
 }
 
@@ -588,6 +739,15 @@ final class PlayerModel: NSObject, ObservableObject {
     @Published var pausedLong = false
     @Published var ccOn = true
     @Published var hasCc = false
+    // Prime-Menüs, Tempo, Tonspuren, Altersfreigabe (2026-10-23)
+    @Published var sheet: PSheet = .none
+    @Published var sheetFocus = 0
+    @Published var speed: Float = 1
+    @Published var audioOpts: [(name: String, on: Bool)] = []
+    @Published var rating = false
+    private var rated = false
+    private var ratingUntil = Date.distantPast
+    private var audioGroup: AVMediaSelectionGroup?
     var onClose: (() -> Void)?
 
     private var cues: [(Double, Double, String)] = []
@@ -620,6 +780,10 @@ final class PlayerModel: NSObject, ObservableObject {
         guard args.contains(where: { $0.hasPrefix("player-") }) else { return }
         for _ in 0..<60 where dur <= 0 || loading { try? await Task.sleep(nanoseconds: 500_000_000) }
         if args.contains("player-film") { debugHold = true; visible = true }
+        if args.contains("player-menue") { debugHold = true; openSheet(.main) }
+        if args.contains("player-tempo") { debugHold = true; openSheet(.speed) }
+        if args.contains("player-ut") { debugHold = true; openSheet(.ccau) }
+        if args.contains("player-fsk") { debugHold = true; rating = true; ratingUntil = .distantFuture }
         if args.contains("player-pause") { player?.pause() }
         if args.contains("player-ende"), let i = info { seekTo((i.credits ?? (dur - 25)) + 0.5) }
     }
@@ -627,6 +791,7 @@ final class PlayerModel: NSObject, ObservableObject {
     func load(type: String, id: String, season: Int, ep: Int, start: Double) async {
         loading = true; error = nil; showNext = false; showSkip = false; nextDismissed = false; cues = []; cue = ""
         stopCountdown(); visible = true; scrub = nil; pausedLong = false; focus = .play; touchedKey(false)
+        sheet = .none; rated = false; rating = false; audioOpts = []; audioGroup = nil
         var o = await API.getObj("/beta/api.php?q=play&type=\(type)&id=" + API.enc(id) + (type == "s" ? "&season=\(season)&ep=\(ep)" : ""))
         #if os(iOS)
         // 2026-10-22: heruntergeladen -> lokale Datei; ohne Internet komplett aus den gespeicherten Daten
@@ -676,7 +841,7 @@ final class PlayerModel: NSObject, ObservableObject {
         statusObs = item.observe(\.status) { [weak self] it, _ in
             Task { @MainActor in
                 guard let self else { return }
-                if it.status == .readyToPlay { self.loading = false }
+                if it.status == .readyToPlay { self.loading = false; await self.loadAudio(it) }
                 if it.status == .failed {
                     self.loading = false
                     self.error = "Das Video konnte nicht geladen werden. " + (it.error?.localizedDescription ?? "")
@@ -737,6 +902,10 @@ final class PlayerModel: NSObject, ObservableObject {
     private func tick(_ t: Double) {
         guard t.isFinite else { return }
         pos = t
+        // Altersfreigabe einmal pro Titel beim ersten Abspielen (~6,5 s), Steuerung so lange aus
+        if !rated, playing, sheet == .none, let i = info, !i.fskR.isEmpty {
+            rated = true; rating = true; ratingUntil = Date().addingTimeInterval(6.5); visible = false
+        }
         if let it = player?.currentItem {
             let d = it.duration.seconds
             if d.isFinite && d > 0 { dur = d }
@@ -773,6 +942,8 @@ final class PlayerModel: NSObject, ObservableObject {
     /// Läuft: nach 3 s (Fernbedienung 5 s) weg. Pause: nach 6 s ohne Eingabe Steuerung weg, Logo/Titel/Beschreibung da.
     private var debugHold = false
     private func uiTick() {
+        if rating && Date() > ratingUntil { rating = false }
+        if sheet != .none { lastInput = Date(); return }
         guard player != nil, !debugHold, error == nil, scrub == nil, !loading else { return }
         let idle = Date().timeIntervalSince(lastInput)
         if playing {
@@ -817,8 +988,8 @@ final class PlayerModel: NSObject, ObservableObject {
     }
 
     // ── Bedienung ──
-    func touched() { keyMode = false; lastInput = Date() }
-    private func touchedKey(_ k: Bool) { keyMode = k; lastInput = Date(); pausedLong = false }
+    func touched() { keyMode = false; lastInput = Date(); rating = false }
+    private func touchedKey(_ k: Bool) { keyMode = k; lastInput = Date(); pausedLong = false; rating = false }
     private func show(_ f: PF? = nil) { visible = true; pausedLong = false; if let f { focus = f }; lastInput = Date() }
 
     func toggle() {
@@ -855,6 +1026,87 @@ final class PlayerModel: NSObject, ObservableObject {
 
     func toggleCc() { ccOn.toggle(); lastInput = Date() }
 
+    // ── Menü-Blatt (Prime) ──
+    func openSheet(_ s: PSheet) {
+        sheet = s; visible = true; pausedLong = false; lastInput = Date()
+        let items = sheetItems()
+        sheetFocus = items.firstIndex(where: { $0.sel && !$0.dis }) ?? items.firstIndex(where: { !$0.dis }) ?? 0
+        if s == .main || s == .ccau { sheetFocus = items.firstIndex(where: { !$0.dis }) ?? 0 }
+    }
+    func closeSheet() { sheet = .none; lastInput = Date() }
+    var sheetTitle: String? {
+        switch sheet {
+        case .main, .none: return nil
+        case .ccau: return "Untertitel und Audio"
+        case .speed: return "Geschwindigkeit"
+        case .subs: return "Untertitel"
+        case .audio: return "Audiosprache"
+        }
+    }
+    var sheetBack: Bool { sheet == .subs || sheet == .audio }
+    var sheetGroupLabels: [Int: String] { sheet == .ccau ? [0: "Untertitel", 1: "Audio"] : [:] }
+    private var audioList: [(name: String, on: Bool)] { audioOpts.isEmpty ? [("Deutsch", true)] : audioOpts }
+
+    func sheetItems() -> [SItem] {
+        let cc = ccOn && hasCc
+        let subs = [SItem(id: "cc:0", label: "Aus", sel: !cc)] + (hasCc ? [SItem(id: "cc:1", label: "Deutsch", sel: cc)] : [])
+        let aud = audioList.enumerated().map { SItem(id: "au:\($0.offset)", label: $0.element.name, sel: $0.element.on, group: 1) }
+        switch sheet {
+        case .none: return []
+        case .main:
+            return [SItem(id: "subs", icon: "text.bubble", label: "Untertitel", value: cc ? "Deutsch" : "Aus", chevron: true),
+                    SItem(id: "audio", icon: "waveform", label: "Audiosprache", value: audioList.first { $0.on }?.name ?? "Deutsch", chevron: true),
+                    SItem(id: "speed", icon: "gauge.with.dots.needle.33percent", label: "Geschwindigkeit", value: speed == 1 ? "Normal" : spdTxt(speed), chevron: true, group: 1),
+                    SItem(id: "report", icon: "flag", label: "Problem melden", chevron: true, group: 2)]
+        case .subs: return subs + (hasCc ? [] : [SItem(id: "none", label: "Keine weiteren Untertitel", dis: true)])
+        case .audio: return aud.map { SItem(id: $0.id, label: $0.label, sel: $0.sel) }
+        case .ccau: return subs + aud
+        case .speed: return SPEEDS.map { SItem(id: "sp:\($0)", label: spdTxt($0), sel: $0 == speed) }
+        }
+    }
+
+    func sheetAct(_ id: String) {
+        lastInput = Date()
+        switch id {
+        case "subs": openSheet(.subs)
+        case "audio": openSheet(.audio)
+        case "speed": openSheet(.speed)
+        case "report": closeSheet(); player?.pause(); onReportFromRemote?()
+        case "cc:0": ccOn = false
+        case "cc:1": ccOn = true
+        default:
+            if id.hasPrefix("au:"), let n = Int(id.dropFirst(3)) { selectAudio(n) }
+            if id.hasPrefix("sp:"), let r = Float(id.dropFirst(3)) { setSpeed(r); closeSheet() }
+        }
+    }
+
+    func setSpeed(_ r: Float) {
+        speed = r
+        player?.defaultRate = r
+        if playing { player?.rate = r }
+    }
+
+    /// Tonspuren (Name auf Deutsch aus der Sprache, sonst Anzeigename)
+    private func loadAudio(_ item: AVPlayerItem) async {
+        guard let g = try? await item.asset.loadMediaSelectionGroup(for: .audible), !g.options.isEmpty else { audioOpts = []; audioGroup = nil; return }
+        audioGroup = g
+        let sel = item.currentMediaSelection.selectedMediaOption(in: g)
+        let de = Locale(identifier: "de_DE")
+        var list: [(name: String, on: Bool)] = g.options.map { o in
+            let n = o.locale?.language.languageCode.flatMap { de.localizedString(forLanguageCode: $0.identifier) } ?? o.displayName
+            return (n.prefix(1).uppercased() + n.dropFirst(), o == sel)
+        }
+        if Set(list.map(\.name)).count < list.count { list = list.enumerated().map { ("\($0.element.name) \($0.offset + 1)", $0.element.on) } }
+        if !list.contains(where: { $0.on }), !list.isEmpty { list[0].on = true }
+        audioOpts = list
+    }
+
+    private func selectAudio(_ n: Int) {
+        guard let g = audioGroup, let it = player?.currentItem, g.options.indices.contains(n) else { return }
+        it.select(g.options[n], in: g)
+        audioOpts = audioOpts.enumerated().map { ($0.element.name, $0.offset == n) }
+    }
+
     func playNext() {
         guard let i = info, let n = i.next, !going else { return }
         going = true
@@ -864,15 +1116,15 @@ final class PlayerModel: NSObject, ObservableObject {
 
     enum Key { case ok, playPause, back, left, right, up, down }
 
-    private func topRow() -> [PF] { [.rep] + (hasCc ? [.cc] : []) + [.close] }
-    private func bottomRow() -> [PF] { [.seek] + (info?.next != nil && !showNext ? [.next] : []) }
+    private func topRow() -> [PF] { [.close, .cc, .spd, .set] }
+    private func bottomRow() -> [PF] { [.seek] + (info?.next != nil && !showNext && !showSkip ? [.next] : []) }
     private func overlay() -> PF? { showNext && info?.next != nil ? .nextGo : (showSkip ? .skip : nil) }
 
     private func activate(_ f: PF) {
         switch f {
-        case .rep: player?.pause(); onReportFromRemote?()
-        case .cc: toggleCc()
-        case .air: break
+        case .cc: openSheet(.ccau)
+        case .spd: openSheet(.speed)
+        case .set: openSheet(.main)
         case .close: onClose?()
         case .rw: seekBy(-10)
         case .play: toggle()
@@ -899,7 +1151,7 @@ final class PlayerModel: NSObject, ObservableObject {
             }
         case .up:
             if topRow().contains(focus) { break }
-            if mid.contains(focus) { focus = topRow().last ?? .close }
+            if mid.contains(focus) { focus = .cc }
             else if focus == .skip || focus == .nextGo { focus = .play }
             else { focus = overlay() ?? .play }
         case .down:
@@ -913,6 +1165,23 @@ final class PlayerModel: NSObject, ObservableObject {
     /// Fernbedienung (Apple TV). OK drückt immer den markierten Knopf; ausgeblendet: OK = Skip/Nächste Folge, sonst Pause.
     func press(_ k: Key, repeatCount: Int) {
         touchedKey(true)
+        // Menü offen: hoch/runter (Tempo: links/rechts) wählt, OK übernimmt, Zurück = Ebene zurück bzw. zu
+        if sheet != .none {
+            let items = sheetItems()
+            let ok = items.indices.filter { !items[$0].dis }
+            let horiz = sheet == .speed
+            func step(_ d: Int) { if let i = ok.firstIndex(of: sheetFocus), ok.indices.contains(i + d) { sheetFocus = ok[i + d] } else if !ok.contains(sheetFocus), let f = ok.first { sheetFocus = f } }
+            switch k {
+            case .back: if sheetBack { openSheet(.main) } else { closeSheet() }
+            case .ok: if items.indices.contains(sheetFocus), !items[sheetFocus].dis { sheetAct(items[sheetFocus].id) }
+            case .playPause: toggle()
+            case .up: if !horiz { step(-1) }
+            case .down: if !horiz { step(1) }
+            case .left: if horiz { step(-1) } else if sheetBack { openSheet(.main) }
+            case .right: if horiz { step(1) } else if items.indices.contains(sheetFocus), items[sheetFocus].chevron { sheetAct(items[sheetFocus].id) }
+            }
+            return
+        }
         let step: Double = repeatCount > 16 ? 60 : (repeatCount > 4 ? 30 : 10)
         switch k {
         case .playPause: toggle(); show()

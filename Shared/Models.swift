@@ -121,6 +121,8 @@ struct User {
 struct PlayInfo {
     let type: String, id, title, sub, src, vtt, poster, progressSlug: String
     let desc, logo: String
+    /// Altersfreigabe (beta/api.php q=play fsk): „16“ + Hinweise auf Deutsch
+    let fskR, fskD: String
     let season, ep: Int?
     let intro: (Double, Double)?
     let recap: (Double, Double)?
@@ -132,6 +134,10 @@ struct PlayInfo {
         type = o.s("type"); id = o.s("id"); title = o.s("title"); sub = o.s("sub"); src = o.s("src"); vtt = o.s("vtt")
         poster = o.s("poster"); desc = o.s("desc"); logo = o.s("logo"); progressSlug = o.s("progressSlug").isEmpty ? o.s("id") : o.s("progressSlug")
         season = o.i("season"); ep = o.i("ep")
+        let fk = o.o("fsk")
+        fskR = fk?.s("r") ?? ""
+        let fd = ((fk?["d"] as? [Any]) ?? []).compactMap { $0 as? String }.joined(separator: ", ")
+        fskD = fd.prefix(1).uppercased() + fd.dropFirst()
         let sk = o.o("skip")
         func seg(_ n: String) -> (Double, Double)? {
             guard let a = sk?[n] as? [Any], a.count == 2, let x = (a[0] as? NSNumber)?.doubleValue, let y = (a[1] as? NSNumber)?.doubleValue else { return nil }

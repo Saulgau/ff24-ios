@@ -106,6 +106,8 @@ struct Img: View {
     let url: String
     var fallback: String = ""
     var mode: ContentMode = .fill
+    var align: Alignment = .center
+    var onFail: (() -> Void)? = nil
     @State private var useFallback = false
 
     var body: some View {
@@ -114,8 +116,8 @@ struct Img: View {
             switch phase {
             case .success(let img):
                 // nimmt nur den vorgegebenen Platz ein; bei .fill wird der Ueberstand abgeschnitten (2026-10-20)
-                Color.clear.overlay(img.resizable().aspectRatio(contentMode: mode)).clipped().transition(.opacity)
-            case .failure: Color.clear.onAppear { if !useFallback && !fallback.isEmpty { useFallback = true } }
+                Color.clear.overlay(alignment: align) { img.resizable().aspectRatio(contentMode: mode) }.clipped().transition(.opacity)
+            case .failure: Color.clear.onAppear { if !useFallback && !fallback.isEmpty { useFallback = true } else { onFail?() } }
             default: Color.clear
             }
         }
