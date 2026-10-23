@@ -3,7 +3,7 @@
 // Update-Hinweis aus tv.filmfrei24.com/app-version.json ("desktop").
 const { app, BrowserWindow, shell, dialog, session, net, Menu, ipcMain } = require('electron');
 const path = require('path');
-const VERSION_BUILD = 2;                 // bei jeder neuen Version hochzählen (app-version.json desktop.build)
+const VERSION_BUILD = 3;                 // bei jeder neuen Version hochzählen (app-version.json desktop.build)
 const HOME = 'https://filmfrei24.com/';
 const DL = require('./downloads');   // 2026-10-22: Offline-Downloads
 let win = null;

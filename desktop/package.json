@@ -1,7 +1,7 @@
 {
   "name": "filmfrei24",
   "productName": "FilmFrei24",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "FilmFrei24 für Windows und Linux",
   "main": "main.js",
   "author": "FilmFrei24",
