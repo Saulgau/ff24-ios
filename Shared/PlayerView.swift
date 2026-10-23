@@ -1186,7 +1186,8 @@ final class PlayerModel: NSObject, ObservableObject {
             }
         case .up:
             if topRow().contains(focus) { break }
-            if mid.contains(focus) { focus = .cc }
+            // 2026-10-23: ohne Untertitel ist das UT-Symbol weg → nie auf einen unsichtbaren Knopf springen
+            if mid.contains(focus) { focus = showCcBtn ? .cc : .spd }
             else if focus == .skip || focus == .nextGo { focus = .play }
             else { focus = overlay() ?? .play }
         case .down:
