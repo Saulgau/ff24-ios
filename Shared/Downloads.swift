@@ -24,9 +24,17 @@ struct DLItem: Codable, Identifiable, Equatable {
     var bytes: Int64 = 0
     var done: Int64 = 0
     var state: String = "queued"   // queued | loading | done | failed
+    var err: String?               // 2026-10-24: Grund bei „failed“ (z. B. kein Speicher)
     var id: String { key }
     var isEpisode: Bool { type == "s" }
     var pct: Int { bytes > 0 ? Int(done * 100 / bytes) : 0 }
+    /// 2026-10-24: große Filme (3 GB) standen sonst lange auf „0 %“ -> „0,8 % · 26 MB von 3,0 GB“
+    var progressText: String {
+        guard bytes > 0 else { return done > 0 ? Downloads.size(done) : "0 %" }
+        let p = Double(done) * 100 / Double(bytes)
+        let ps = p < 10 ? String(format: "%.1f", p).replacingOccurrences(of: ".", with: ",") : String(Int(p))
+        return "\(ps) % · \(Downloads.size(done)) von \(Downloads.size(bytes))"
+    }
 }
 
 final class Downloads: NSObject, ObservableObject, URLSessionDownloadDelegate {
@@ -64,6 +72,21 @@ final class Downloads: NSObject, ObservableObject, URLSessionDownloadDelegate {
         super.init()
         if let d = try? Data(contentsOf: metaURL), let l = try? JSONDecoder().decode([DLItem].self, from: d) { items = l }
         reconcile()
+        // 2026-10-24: auch beim Zurückkehren in die App hängende/verwaiste Downloads wieder anstoßen
+        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.reconcile()
+        }
+    }
+
+    /// Fortsetzungs-Versuche je Download (nur im Speicher, nach App-Neustart wieder voll)
+    private var retries: [String: Int] = [:]
+
+    private func request(_ src: String) -> URLRequest? {
+        guard let u = URL(string: src) else { return nil }
+        var req = URLRequest(url: u)
+        req.allowsCellularAccess = !wifiOnly
+        req.setValue("FilmFrei24-iOS", forHTTPHeaderField: "User-Agent")
+        return req
     }
 
     // MARK: Dateien
@@ -102,7 +125,16 @@ final class Downloads: NSObject, ObservableObject, URLSessionDownloadDelegate {
         let o = await API.getObj("/beta/api.php?q=play&type=\(type)&id=" + API.enc(id) + (type == "s" ? "&season=\(season ?? 1)&ep=\(ep ?? 1)" : ""))
         guard let pi = PlayInfo(o), let u = URL(string: pi.src) else { return o.s("error").isEmpty ? "Nicht verfügbar" : o.s("error") }
         let raw = (try? JSONSerialization.data(withJSONObject: o)) ?? Data()
+        // 2026-10-24: vorher prüfen, ob der Platz reicht (sonst bricht iOS den Download still ab)
+        var head = URLRequest(url: u); head.httpMethod = "HEAD"
+        if let (_, r) = try? await URLSession.shared.data(for: head), let h = r as? HTTPURLResponse, h.expectedContentLength > 0 {
+            let need = h.expectedContentLength + (200 << 20)
+            if freeBytes > 0 && freeBytes < need {
+                return "Nicht genug Speicher auf dem Gerät: benötigt \(Downloads.size(h.expectedContentLength)), frei \(Downloads.size(freeBytes))."
+            }
+        }
         remove(k)
+        retries[k] = 0
         var it = DLItem(key: k, type: type, itemId: id, season: pi.season ?? season, ep: pi.ep ?? ep, title: pi.title, sub: pi.sub,
                         poster: pi.poster, src: pi.src, vtt: pi.vtt, play: raw, added: Date())
         it.state = "queued"
@@ -182,8 +214,7 @@ final class Downloads: NSObject, ObservableObject, URLSessionDownloadDelegate {
             DispatchQueue.main.async {
                 for it in self.items where it.state != "done" && !running.contains(it.key) {
                     if FileManager.default.fileExists(atPath: self.file(it.key).path) { self.update(it.key) { $0.state = "done" } }
-                    else if let u = URL(string: it.src) {
-                        var req = URLRequest(url: u); req.allowsCellularAccess = !self.wifiOnly
+                    else if it.state != "failed" || it.err == nil, let req = self.request(it.src) {
                         let t = self.session.downloadTask(with: req); t.taskDescription = it.key; t.resume()
                         self.update(it.key) { $0.state = "queued" }
                     }
@@ -209,20 +240,53 @@ final class Downloads: NSObject, ObservableObject, URLSessionDownloadDelegate {
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard let k = downloadTask.taskDescription else { return }
-        if let r = downloadTask.response as? HTTPURLResponse, r.statusCode >= 400 { update(k) { $0.state = "failed" }; return }
+        // 2026-10-24: inzwischen gelöscht -> Datei nicht behalten (sonst Speicher belegt, aber unsichtbar)
+        let exists = DispatchQueue.main.sync { self.item(k) != nil }
+        if !exists { try? FileManager.default.removeItem(at: location); return }
+        if let r = downloadTask.response as? HTTPURLResponse, r.statusCode >= 400 { update(k) { $0.state = "failed"; $0.err = "Datei nicht erreichbar (\(r.statusCode))" }; return }
+        let got = Int64((try? location.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        let want = downloadTask.countOfBytesExpectedToReceive
+        if want > 0 && got < want {
+            try? FileManager.default.removeItem(at: location)
+            retry(k, resumeData: nil, why: "unvollständig"); return
+        }
         let dest = file(k)
         try? FileManager.default.removeItem(at: dest)
         do {
             try FileManager.default.moveItem(at: location, to: dest)
             let size = Int64((try? dest.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
-            update(k) { $0.state = "done"; $0.bytes = size; $0.done = size }
-        } catch { update(k) { $0.state = "failed" } }
+            update(k) { $0.state = "done"; $0.bytes = size; $0.done = size; $0.err = nil }
+        } catch { update(k) { $0.state = "failed"; $0.err = "Konnte nicht gespeichert werden (Speicher voll?)" } }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let k = task.taskDescription, let e = error as NSError? else { return }
-        if e.code == NSURLErrorCancelled { return }   // gelöscht
-        update(k) { $0.state = "failed" }
+        let resume = e.userInfo[NSURLSessionDownloadTaskResumeData] as? Data
+        // gelöscht (remove) -> Ende; von iOS abgebrochen (mit Fortsetzungsdaten) -> weiter
+        if e.code == NSURLErrorCancelled && resume == nil { return }
+        let noSpace = e.code == NSURLErrorCannotWriteToFile || e.code == NSURLErrorCannotCreateFile
+            || (e.userInfo[NSUnderlyingErrorKey] as? NSError)?.code == Int(ENOSPC)
+        if noSpace { update(k) { $0.state = "failed"; $0.err = "Nicht genug Speicher auf dem Gerät" }; return }
+        retry(k, resumeData: resume, why: e.localizedDescription)
+    }
+
+    /// 2026-10-24: abgebrochene Downloads automatisch fortsetzen (mit Fortsetzungsdaten ab der Abbruchstelle)
+    private func retry(_ k: String, resumeData: Data?, why: String) {
+        DispatchQueue.main.async {
+            guard let it = self.item(k) else { return }
+            let n = (self.retries[k] ?? 0) + 1
+            self.retries[k] = n
+            if n > 30 { self.update(k) { $0.state = "failed"; $0.err = why }; return }
+            self.update(k) { $0.state = "queued" }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(min(n * 3, 60))) {
+                guard self.item(k) != nil, self.item(k)?.state != "done" else { return }
+                let t: URLSessionDownloadTask
+                if let r = resumeData { t = self.session.downloadTask(withResumeData: r) }
+                else if let req = self.request(it.src) { t = self.session.downloadTask(with: req) }
+                else { return }
+                t.taskDescription = k; t.resume()
+            }
+        }
     }
 
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
@@ -326,20 +390,26 @@ struct DownloadsView: View {
         }.background(RoundedRectangle(cornerRadius: 8).fill(FF.box))
     }
 
+    func posterOf(_ d: DLItem) -> String {
+        let p = Store.shared.web.by["\(d.type):\(d.itemId)"]?.poster ?? ""
+        return p.isEmpty ? d.poster : p
+    }
+
     func rowBody(_ d: DLItem, title: String, sub: String, wide: Bool, series: Bool) -> some View {
         HStack(spacing: 14) {
             ZStack {
                 FF.skel
-                Img(url: d.poster)
+                // 2026-10-24 User: Hochformat-Poster aus dem Katalog statt Banner (q=play liefert nur das Querformat)
+                Img(url: posterOf(d))
                 if d.state == "done" && !series {
                     Image(systemName: "play.fill").font(.system(size: 15)).foregroundColor(.white).frame(width: 34, height: 34).background(Circle().fill(Color.black.opacity(0.7)))
                 }
-            }.frame(width: wide ? 128 : 72, height: wide ? 72 : 108).clipShape(RoundedRectangle(cornerRadius: 6))
+            }.frame(width: 72, height: 108).clipShape(RoundedRectangle(cornerRadius: 6))
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.inter(17, .semibold)).foregroundColor(.white).lineLimit(2).multilineTextAlignment(.leading)
                 Text(sub).font(.inter(14)).foregroundColor(FF.text2).lineLimit(2)
                 if !series && d.state != "done" {
-                    Text(d.state == "failed" ? "Fehlgeschlagen – bitte erneut herunterladen" : d.state == "queued" ? (dl.wifiOnly ? "Wartet (nur WLAN)" : "In Warteschlange") : "Wird heruntergeladen · \(d.pct) %")
+                    Text(d.state == "failed" ? "Fehlgeschlagen" + (d.err.map { " (\($0))" } ?? "") + " – bitte erneut herunterladen" : d.state == "queued" ? (d.done > 0 ? "Wird fortgesetzt · \(d.progressText)" : dl.wifiOnly ? "Wartet (nur WLAN)" : "In Warteschlange") : "Wird heruntergeladen · \(d.progressText)")
                         .font(.inter(13, .semibold)).foregroundColor(d.state == "failed" ? FF.red : FF.blue).padding(.top, 2)
                     if d.state != "failed" { ProgressLine(pct: max(d.pct, 1), height: 3).clipShape(Capsule()).padding(.top, 2) }
                 }
@@ -391,7 +461,7 @@ struct DownloadButton: View {
         case "done": return "Heruntergeladen"
         case "failed": return "Fehlgeschlagen – erneut versuchen"
         case "queued": return "In Warteschlange …"
-        default: return "Wird heruntergeladen · \(d.pct) %"
+        default: return "Wird heruntergeladen · \(d.progressText)"
         }
     }
 }

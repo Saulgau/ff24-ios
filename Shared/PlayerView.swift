@@ -834,13 +834,13 @@ final class PlayerModel: NSObject, ObservableObject {
         // 2026-10-22: heruntergeladen -> lokale Datei; ohne Internet komplett aus den gespeicherten Daten
         let dk = Downloads.key(type: type, id: id, season: season, ep: ep)
         if var l = Downloads.shared.offlinePlay(dk) {
-            if PlayInfo(o) != nil { o["src"] = l["src"]; o["vtt"] = l["vtt"] }
-            else {
-                if let n = Downloads.shared.nextDownloaded(after: dk) {
-                    l["next"] = ["season": n.season ?? 1, "ep": n.ep ?? 1, "title": n.sub, "thumb": n.poster] as [String: Any]
-                } else { l["next"] = nil }
-                o = l
+            // 2026-10-24 User: „Nächste Folge“ beim Download nur, wenn die nächste Folge auch heruntergeladen ist (auch online)
+            var nx: [String: Any]? = nil
+            if let n = Downloads.shared.nextDownloaded(after: dk) {
+                nx = ["season": n.season ?? 1, "ep": n.ep ?? 1, "title": n.sub.components(separatedBy: " · ").dropFirst().joined(separator: " · "), "thumb": n.poster]
             }
+            if PlayInfo(o) != nil { o["src"] = l["src"]; o["vtt"] = l["vtt"]; o["next"] = nx ?? NSNull() }
+            else { l["next"] = nx ?? NSNull(); o = l }
         }
         #endif
         guard let i = PlayInfo(o) else {
