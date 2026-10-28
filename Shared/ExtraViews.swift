@@ -771,18 +771,17 @@ struct AltPayView: View {
                 if bal > 0 { Text("Dein Guthaben: " + eur(Double(bal) / 100)).font(.inter(15, .bold)).foregroundColor(.white) }
                 if bal >= tc {
                     Cta(label: busy ? "Bitte warten …" : "Mit Guthaben bezahlen · " + eur(total), icon: nil, dark: true) { if !busy { submit(nil) } }
-                } else {
-                    HStack(spacing: 10) {
-                        if cc.b("paysafe") { opt("paysafe", "🎫 Paysafecard") }
-                        if !cc.s("iban").isEmpty { opt("transfer", "🏦 Überweisung") }
-                    }
-                    if kind == "paysafe" { paysafe(need) }
-                    if kind == "transfer" { transfer(cc, need) }
                 }
+                HStack(spacing: 10) {
+                    if cc.b("paysafe") { opt("paysafe", "🎫 Paysafecard") }
+                    if !cc.s("iban").isEmpty { opt("transfer", "🏦 Überweisung") }
+                }
+                if kind == "paysafe" { paysafe(need, bal) }
+                if kind == "transfer" { transfer(cc, tc) }
                 if !err.isEmpty { Text(err).font(.inter(14, .bold)).foregroundColor(Color(hex: 0xF87171)) }
             }
         }
-        .task { if loggedIn && c == nil { let d = await API.getObj("/api/credit.php?action=me"); if d.b("ok") { c = d; pins = [("", String(format: "%.2f", Double(max(0, Int((total * 100).rounded()) - (d.i("balance") ?? 0))) / 100).replacingOccurrences(of: ".", with: ","))] } } }
+        .task { if loggedIn && c == nil { let d = await API.getObj("/api/credit.php?action=me"); if d.b("ok") { c = d; let t = Int((total * 100).rounded()), n = max(0, t - (d.i("balance") ?? 0)); pins = [("", String(format: "%.2f", Double(n > 0 ? n : t) / 100).replacingOccurrences(of: ".", with: ","))] } } }
     }
 
     func opt(_ k: String, _ l: String) -> some View {
@@ -795,10 +794,10 @@ struct AltPayView: View {
         }.buttonStyle(.plain)
     }
 
-    func paysafe(_ need: Int) -> some View {
+    func paysafe(_ need: Int, _ bal: Int) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Gib den 16-stelligen Code deiner Paysafecard und ihren Wert ein (jeder Betrag). Die Karte wird von uns manuell geprüft (meist innerhalb eines Tages), erst danach werden deine Wünsche angelegt. Was übrig bleibt, bekommst du als Guthaben.").font(.inter(14)).foregroundColor(.white)
-            Text("Noch zu zahlen: " + eur(Double(need) / 100)).font(.inter(13)).foregroundColor(FF.text2)
+            Text("Preis deiner Wünsche: " + eur(total) + (bal > 0 ? " · dein Guthaben wird mit verrechnet" : "")).font(.inter(13)).foregroundColor(FF.text2)
             ForEach(pins.indices, id: \.self) { i in
                 HStack(spacing: 8) {
                     TextField("16-stelliger Code", text: Binding(get: { pins[i].0 }, set: { pins[i].0 = String($0.filter(\.isNumber).prefix(16)) }))
@@ -822,14 +821,14 @@ struct AltPayView: View {
         }.padding(.top, 8)
     }
 
-    func transfer(_ cc: J, _ need: Int) -> some View {
-        let amt = max(100, need)
+    func transfer(_ cc: J, _ price: Int) -> some View {
+        let amt = price // genau der Kaufpreis, kein Guthaben (Rest-Guthaben nur bei Paysafecard)
         let rows: [(String, String)] = [
             ("Empfänger", cc.s("holder")), ("IBAN", cc.s("iban")), ("BIC", cc.s("bic")), ("Bank", cc.s("bank")),
             ("Verwendungszweck", cc.s("ref")), ("Betrag", eur(Double(amt) / 100)),
         ].filter { !$0.1.isEmpty }
         return VStack(alignment: .leading, spacing: 8) {
-            Text("Überweise den Betrag auf unser Konto. Wichtig: Verwendungszweck genau so angeben. Die Überweisung wird von uns manuell geprüft, sobald das Geld da ist (meist 1–2 Werktage), danach werden deine Wünsche angelegt. Tippen zum Kopieren.").font(.inter(14)).foregroundColor(.white)
+            Text("Überweise genau den Kaufpreis auf unser Konto. Wichtig: Verwendungszweck genau so angeben. Die Überweisung wird von uns manuell geprüft, sobald das Geld da ist (meist 1–2 Werktage), danach werden deine Wünsche angelegt. Tippen zum Kopieren.").font(.inter(14)).foregroundColor(.white)
             ForEach(rows, id: \.0) { r in
                 Button { UIPasteboard.general.string = r.0 == "Betrag" ? String(format: "%.2f", Double(amt) / 100).replacingOccurrences(of: ".", with: ",") : r.1; router.toast = "Kopiert!" } label: {
                     HStack(alignment: .top) {
