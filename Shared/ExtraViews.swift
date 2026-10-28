@@ -40,6 +40,7 @@ struct WishesView: View {
     @State private var filter = "pending"
     @State private var busyId: Int? = nil
     @State private var cartOpen = false
+    @State private var altInfo = ""
     @State private var payURL: String? = nil       // Apple TV: QR-Code zum Bezahlen am Handy
 
     var cart: [J] { ((try? JSONSerialization.jsonObject(with: Data(cartRaw.utf8))) as? [J]) ?? [] }
@@ -87,6 +88,9 @@ struct WishesView: View {
             results = await API.getObj("/api/tmdb.php?q=" + API.enc(qq) + "&type=" + type).a("results").filter { ["de", "en", ""].contains($0.s("original_language")) }
         }
         .sheet(isPresented: $cartOpen) { cartSheet }
+        .alert("Danke! Wir prüfen deine Zahlung", isPresented: Binding(get: { !altInfo.isEmpty }, set: { if !$0 { altInfo = "" } })) {
+            Button("OK") { altInfo = "" }
+        } message: { Text(altInfo) }
         #if os(tvOS)
         .fullScreenCover(item: Binding(get: { payURL.map { QRPay(url: $0) } }, set: { payURL = $0?.url })) { QRPayView(url: $0.url) }
         #endif
@@ -215,8 +219,15 @@ struct WishesView: View {
                     }
                 }
                 HStack { Text("Summe"); Spacer(); Text(eur(total)) }.font(.inter(18, .bold)).foregroundColor(.white).padding(.vertical, 18)
-                Text("Bezahlung sicher über Stripe (Karte, Apple Pay, Google Pay).").font(.inter(14)).foregroundColor(FF.text2).padding(.bottom, 14)
+                Text("Bezahlung sicher über Stripe (Karte, Klarna, Apple Pay).").font(.inter(14)).foregroundColor(FF.text2).padding(.bottom, 14)
                 Cta(label: "Jetzt bezahlen · " + eur(total), icon: nil) { pay() }
+                #if !os(tvOS)
+                AltPayView(total: total, items: cart, loggedIn: ctx?.b("loggedIn") == true) { msg, pending in
+                    saveCart([]); cartOpen = false
+                    if pending { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { altInfo = msg } } else { router.toast = msg }
+                    Task { await load() }
+                }
+                #endif
             }.padding(20)
         }.background(FF.sheet.ignoresSafeArea())
     }
@@ -725,3 +736,121 @@ struct FlowChips: View {
         }
     }
 }
+
+
+#if !os(tvOS)
+/// 2026-10-28: Guthaben, Paysafecard, Überweisung (SumUp) wie auf der Website – nur mit Konto,
+/// Paysafe/Überweisung werden von Hand geprüft (api/credit.php, wishlist_checkout mode=credit).
+struct AltPayView: View {
+    let total: Double
+    let items: [J]
+    let loggedIn: Bool
+    let onDone: (String, Bool) -> Void
+    @EnvironmentObject var router: Router
+    @State private var c: J? = nil
+    @State private var kind = ""
+    @State private var busy = false
+    @State private var pins: [(String, Int)] = [("", 10)]
+    static let vals = [10, 25, 50, 100]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !loggedIn {
+                Text("Lieber mit Paysafecard oder Überweisung zahlen? Das geht, wenn du angemeldet bist (Konto).").font(.inter(14)).foregroundColor(FF.text2)
+                    .multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.top, 14)
+            } else if let cc = c {
+                let tc = Int((total * 100).rounded()), bal = cc.i("balance") ?? 0, need = max(0, tc - bal)
+                HStack { Rectangle().fill(FF.btn).frame(height: 1); Text("oder").font(.inter(13)).foregroundColor(FF.text2); Rectangle().fill(FF.btn).frame(height: 1) }.padding(.top, 18)
+                if bal > 0 { Text("Dein Guthaben: " + eur(Double(bal) / 100)).font(.inter(15, .bold)).foregroundColor(.white) }
+                if bal >= tc {
+                    Cta(label: busy ? "Bitte warten …" : "Mit Guthaben bezahlen · " + eur(total), icon: nil, dark: true) { if !busy { submit(nil) } }
+                } else {
+                    HStack(spacing: 10) {
+                        if cc.b("paysafe") { opt("paysafe", "💳 Paysafecard") }
+                        if !cc.s("iban").isEmpty { opt("transfer", "🏦 Überweisung") }
+                    }
+                    if kind == "paysafe" { paysafe(need) }
+                    if kind == "transfer" { transfer(cc, need) }
+                }
+            }
+        }
+        .task { if loggedIn && c == nil { let d = await API.getObj("/api/credit.php?action=me"); if d.b("ok") { c = d; pins = [("", Self.vals.first { $0 * 100 >= max(0, Int((total * 100).rounded()) - (d.i("balance") ?? 0)) } ?? 100)] } } }
+    }
+
+    func opt(_ k: String, _ l: String) -> some View {
+        Button { kind = k } label: {
+            VStack(spacing: 2) {
+                Text(l).font(.inter(15, .bold))
+                Text("manuelle Prüfung").font(.inter(12))
+            }.foregroundColor(kind == k ? FF.dark : .white).frame(maxWidth: .infinity, minHeight: 52)
+            .background(RoundedRectangle(cornerRadius: 8).fill(kind == k ? Color.white : FF.btn))
+        }.buttonStyle(.plain)
+    }
+
+    func paysafe(_ need: Int) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Gib den 16-stelligen Code deiner Paysafecard und ihren Wert ein. Die Karte wird von uns manuell geprüft (meist innerhalb eines Tages), erst danach werden deine Wünsche angelegt. Was übrig bleibt, bekommst du als Guthaben.").font(.inter(14)).foregroundColor(.white)
+            Text("Noch zu zahlen: " + eur(Double(need) / 100)).font(.inter(13)).foregroundColor(FF.text2)
+            ForEach(pins.indices, id: \.self) { i in
+                HStack(spacing: 8) {
+                    TextField("16-stelliger Code", text: Binding(get: { pins[i].0 }, set: { pins[i].0 = String($0.filter(\.isNumber).prefix(16)) }))
+                        .keyboardType(.numberPad).font(.system(size: 16, design: .monospaced)).foregroundColor(.white)
+                        .padding(12).background(RoundedRectangle(cornerRadius: 8).fill(FF.field))
+                    Menu {
+                        ForEach(Self.vals, id: \.self) { v in Button("\(v) €") { pins[i].1 = v } }
+                    } label: {
+                        Text("\(pins[i].1) € ▾").font(.inter(15, .bold)).foregroundColor(.white).frame(width: 90).padding(.vertical, 12).background(RoundedRectangle(cornerRadius: 8).fill(FF.field))
+                    }
+                }
+            }
+            if pins.count < 5 { GreyButton(label: "+ weitere Karte") { pins.append(("", 10)) } }
+            Cta(label: busy ? "Bitte warten …" : "Code einreichen", icon: nil) {
+                let ok = pins.filter { !$0.0.isEmpty }
+                if ok.isEmpty || ok.contains(where: { $0.0.count != 16 }) { router.toast = "Ein Paysafecard-Code hat 16 Ziffern."; return }
+                if !busy { submit(["method": "paysafe", "pins": ok.map { ["pin": $0.0, "value": $0.1] }]) }
+            }.padding(.top, 4)
+        }.padding(.top, 8)
+    }
+
+    func transfer(_ cc: J, _ need: Int) -> some View {
+        let amt = max(100, need)
+        let rows: [(String, String)] = [
+            ("Empfänger", cc.s("holder")), ("IBAN", cc.s("iban")), ("BIC", cc.s("bic")), ("Bank", cc.s("bank")),
+            ("Verwendungszweck", cc.s("ref")), ("Betrag", eur(Double(amt) / 100)),
+        ].filter { !$0.1.isEmpty }
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Überweise den Betrag auf unser Konto. Wichtig: Verwendungszweck genau so angeben. Die Überweisung wird von uns manuell geprüft, sobald das Geld da ist (meist 1–2 Werktage), danach werden deine Wünsche angelegt. Tippen zum Kopieren.").font(.inter(14)).foregroundColor(.white)
+            ForEach(rows, id: \.0) { r in
+                Button { UIPasteboard.general.string = r.0 == "Betrag" ? String(format: "%.2f", Double(amt) / 100).replacingOccurrences(of: ".", with: ",") : r.1; router.toast = "Kopiert!" } label: {
+                    HStack(alignment: .top) {
+                        Text(r.0).font(.inter(14)).foregroundColor(FF.text2).frame(width: 130, alignment: .leading)
+                        Text(r.1).font(.inter(14, .bold)).foregroundColor(r.0 == "Verwendungszweck" ? Color(hex: 0x93C5FD) : .white).multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                    }
+                }.buttonStyle(.plain)
+            }
+            Cta(label: busy ? "Bitte warten …" : "Ich habe überwiesen", icon: nil) {
+                if !busy { submit(["method": "transfer", "amount": String(format: "%.2f", Double(amt) / 100)]) }
+            }.padding(.top, 6)
+        }.padding(.top, 8)
+    }
+
+    func submit(_ topup: J?) {
+        busy = true
+        Task {
+            var p: J = ["action": "create", "mode": "credit", "items": items]
+            if let topup { p["topup"] = topup }
+            let d = await API.postObj("/api/wishlist_checkout.php", p)
+            busy = false
+            guard d.b("ok") else { router.toast = d.s("error").isEmpty ? "Fehler" : d.s("error"); return }
+            if d.b("pending") {
+                onDone(kind == "paysafe"
+                       ? "Deine Paysafecard wird von Hand geprüft. Danach werden deine Wünsche angelegt und du bekommst eine Nachricht ins Postfach. Was von der Karte übrig bleibt, wird dein Guthaben."
+                       : "Sobald deine Überweisung mit dem Verwendungszweck \(d.s("ref")) bei uns ankommt, prüfen wir sie von Hand. Danach werden deine Wünsche angelegt und du bekommst eine Nachricht ins Postfach.", true)
+            } else {
+                onDone("Danke! Wünsche angelegt · Restguthaben " + eur(Double(d.i("balance") ?? 0) / 100), false)
+            }
+        }
+    }
+}
+#endif
