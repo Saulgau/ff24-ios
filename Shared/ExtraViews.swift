@@ -41,6 +41,8 @@ struct WishesView: View {
     @State private var busyId: Int? = nil
     @State private var cartOpen = false
     @State private var altInfo = ""
+    @State private var payErr = ""
+    @State private var paying = false
     @State private var payURL: String? = nil       // Apple TV: QR-Code zum Bezahlen am Handy
 
     var cart: [J] { ((try? JSONSerialization.jsonObject(with: Data(cartRaw.utf8))) as? [J]) ?? [] }
@@ -220,7 +222,8 @@ struct WishesView: View {
                 }
                 HStack { Text("Summe"); Spacer(); Text(eur(total)) }.font(.inter(18, .bold)).foregroundColor(.white).padding(.vertical, 18)
                 Text("Bezahlung sicher über Stripe (Karte, Klarna, Apple Pay).").font(.inter(14)).foregroundColor(FF.text2).padding(.bottom, 14)
-                Cta(label: "Jetzt bezahlen · " + eur(total), icon: nil) { pay() }
+                Cta(label: paying ? "Bitte warten …" : "Jetzt bezahlen · " + eur(total), icon: nil) { if !paying { pay() } }
+                if !payErr.isEmpty { Text(payErr).font(.inter(14, .bold)).foregroundColor(Color(hex: 0xF87171)).padding(.top, 6) }
                 #if !os(tvOS)
                 AltPayView(total: total, items: cart, loggedIn: ctx?.b("loggedIn") == true) { msg, pending in
                     saveCart([]); cartOpen = false
@@ -233,17 +236,21 @@ struct WishesView: View {
     }
 
     func pay() {
+        paying = true; payErr = ""
         Task {
             var payload: J = ["action": "create", "mode": "paid", "items": cart]
             if ctx?.b("loggedIn") != true { payload["guest_id"] = guest }
             let d = await API.postObj("/api/wishlist_checkout.php", payload)
+            paying = false
             let url = d.s("checkout_url")
-            guard d.b("ok"), !url.isEmpty else { router.toast = d.s("error").isEmpty ? "Bestellung konnte nicht erstellt werden" : d.s("error"); return }
+            // Fehler im Warenkorb anzeigen (ein Toast lag hinter dem offenen Sheet, 2026-10-28)
+            guard d.b("ok"), !url.isEmpty else { payErr = d.s("error").isEmpty ? "Bestellung konnte nicht erstellt werden – bitte nochmal versuchen." : d.s("error"); return }
             saveCart([]); cartOpen = false
             #if os(tvOS)
             payURL = url
             #else
-            router.browser(url)      // Stripe-Bezahlseite
+            // Stripe erst öffnen, wenn das Sheet ganz zu ist – sonst verschluckt iOS die zweite Präsentation
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { router.browser(url) }
             #endif
         }
     }
@@ -750,8 +757,8 @@ struct AltPayView: View {
     @State private var c: J? = nil
     @State private var kind = ""
     @State private var busy = false
-    @State private var pins: [(String, Int)] = [("", 10)]
-    static let vals = [10, 25, 50, 100]
+    @State private var pins: [(String, String)] = [("", "")]
+    @State private var err = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -766,15 +773,16 @@ struct AltPayView: View {
                     Cta(label: busy ? "Bitte warten …" : "Mit Guthaben bezahlen · " + eur(total), icon: nil, dark: true) { if !busy { submit(nil) } }
                 } else {
                     HStack(spacing: 10) {
-                        if cc.b("paysafe") { opt("paysafe", "💳 Paysafecard") }
+                        if cc.b("paysafe") { opt("paysafe", "🎫 Paysafecard") }
                         if !cc.s("iban").isEmpty { opt("transfer", "🏦 Überweisung") }
                     }
                     if kind == "paysafe" { paysafe(need) }
                     if kind == "transfer" { transfer(cc, need) }
                 }
+                if !err.isEmpty { Text(err).font(.inter(14, .bold)).foregroundColor(Color(hex: 0xF87171)) }
             }
         }
-        .task { if loggedIn && c == nil { let d = await API.getObj("/api/credit.php?action=me"); if d.b("ok") { c = d; pins = [("", Self.vals.first { $0 * 100 >= max(0, Int((total * 100).rounded()) - (d.i("balance") ?? 0)) } ?? 100)] } } }
+        .task { if loggedIn && c == nil { let d = await API.getObj("/api/credit.php?action=me"); if d.b("ok") { c = d; pins = [("", String(format: "%.2f", Double(max(0, Int((total * 100).rounded()) - (d.i("balance") ?? 0))) / 100).replacingOccurrences(of: ".", with: ","))] } } }
     }
 
     func opt(_ k: String, _ l: String) -> some View {
@@ -789,25 +797,27 @@ struct AltPayView: View {
 
     func paysafe(_ need: Int) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Gib den 16-stelligen Code deiner Paysafecard und ihren Wert ein. Die Karte wird von uns manuell geprüft (meist innerhalb eines Tages), erst danach werden deine Wünsche angelegt. Was übrig bleibt, bekommst du als Guthaben.").font(.inter(14)).foregroundColor(.white)
+            Text("Gib den 16-stelligen Code deiner Paysafecard und ihren Wert ein (jeder Betrag). Die Karte wird von uns manuell geprüft (meist innerhalb eines Tages), erst danach werden deine Wünsche angelegt. Was übrig bleibt, bekommst du als Guthaben.").font(.inter(14)).foregroundColor(.white)
             Text("Noch zu zahlen: " + eur(Double(need) / 100)).font(.inter(13)).foregroundColor(FF.text2)
             ForEach(pins.indices, id: \.self) { i in
                 HStack(spacing: 8) {
                     TextField("16-stelliger Code", text: Binding(get: { pins[i].0 }, set: { pins[i].0 = String($0.filter(\.isNumber).prefix(16)) }))
                         .keyboardType(.numberPad).font(.system(size: 16, design: .monospaced)).foregroundColor(.white)
                         .padding(12).background(RoundedRectangle(cornerRadius: 8).fill(FF.field))
-                    Menu {
-                        ForEach(Self.vals, id: \.self) { v in Button("\(v) €") { pins[i].1 = v } }
-                    } label: {
-                        Text("\(pins[i].1) € ▾").font(.inter(15, .bold)).foregroundColor(.white).frame(width: 90).padding(.vertical, 12).background(RoundedRectangle(cornerRadius: 8).fill(FF.field))
-                    }
+                    HStack(spacing: 4) {
+                        TextField("Wert", text: Binding(get: { pins[i].1 }, set: { pins[i].1 = String($0.filter { $0.isNumber || $0 == "," || $0 == "." }.prefix(7)) }))
+                            .keyboardType(.decimalPad).font(.inter(16)).foregroundColor(.white)
+                        Text("€").foregroundColor(FF.text2)
+                    }.frame(width: 100).padding(12).background(RoundedRectangle(cornerRadius: 8).fill(FF.field))
                 }
             }
-            if pins.count < 5 { GreyButton(label: "+ weitere Karte") { pins.append(("", 10)) } }
+            if pins.count < 5 { GreyButton(label: "+ weitere Karte") { pins.append(("", "")) } }
             Cta(label: busy ? "Bitte warten …" : "Code einreichen", icon: nil) {
                 let ok = pins.filter { !$0.0.isEmpty }
-                if ok.isEmpty || ok.contains(where: { $0.0.count != 16 }) { router.toast = "Ein Paysafecard-Code hat 16 Ziffern."; return }
-                if !busy { submit(["method": "paysafe", "pins": ok.map { ["pin": $0.0, "value": $0.1] }]) }
+                let num = { (v: String) -> Double in Double(v.replacingOccurrences(of: ",", with: ".")) ?? 0 }
+                if ok.isEmpty || ok.contains(where: { $0.0.count != 16 }) { err = "Ein Paysafecard-Code hat 16 Ziffern."; return }
+                if ok.contains(where: { num($0.1) < 1 }) { err = "Bitte zu jedem Code den Wert der Karte eintragen."; return }
+                if !busy { submit(["method": "paysafe", "pins": ok.map { ["pin": $0.0, "value": num($0.1)] }]) }
             }.padding(.top, 4)
         }.padding(.top, 8)
     }
@@ -842,7 +852,8 @@ struct AltPayView: View {
             if let topup { p["topup"] = topup }
             let d = await API.postObj("/api/wishlist_checkout.php", p)
             busy = false
-            guard d.b("ok") else { router.toast = d.s("error").isEmpty ? "Fehler" : d.s("error"); return }
+            guard d.b("ok") else { err = d.s("error").isEmpty ? "Fehler – bitte nochmal versuchen." : d.s("error"); return }
+            err = ""
             if d.b("pending") {
                 onDone(kind == "paysafe"
                        ? "Deine Paysafecard wird von Hand geprüft. Danach werden deine Wünsche angelegt und du bekommst eine Nachricht ins Postfach. Was von der Karte übrig bleibt, wird dein Guthaben."
