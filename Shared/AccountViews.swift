@@ -262,7 +262,7 @@ struct SettingsView: View {
                         BoxCard(title: "Mehr") {
                             if u.tier == "user" { SetRow(title: "Unterstützer werden", sub: "10 € im Monat · Filme gratis wünschen, 10 % auf Serien") { GreyButton(label: "Unterstützen", white: true) { member() } } }
                             SetRow(title: "IPTV-Playlist", sub: "Alle Filme & Serien in TiviMate, VLC, Kodi & Co.") { GreyButton(label: "Öffnen") { router.go(.iptv) } }
-                            SetRow(title: "Discord", sub: "Community & Neuigkeiten", last: true) { GreyButton(label: "Öffnen") { router.browser("https://discord.gg/Jzj4nYj85U") } }
+                            SetRow(title: "Discord", sub: "Community & Neuigkeiten", last: true) { GreyButton(label: "Öffnen") { router.browser(discordURL) } }
                         }
                         BoxCard {
                             SetRow(title: "Support & Forum", sub: "Fehler melden, Ideen vorschlagen, mitreden") { GreyButton(label: "Öffnen") { router.route("support") } }

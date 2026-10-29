@@ -235,6 +235,20 @@ struct Root: View {
                 }
             }
             if !isLoginRoute { TabBar() }
+            // 2026-10-29: Discord-Knopf unten rechts auf der Startseite (wie Website/Android)
+            if !isLoginRoute && router.tab == "home" && router.path.isEmpty {
+                HStack {
+                    Spacer()
+                    Button { router.browser(discordURL) } label: {
+                        Image("Discord").renderingMode(.template).resizable().scaledToFit().frame(width: 26, height: 26)
+                            .foregroundColor(.white).frame(width: 48, height: 48)
+                            .background(Circle().fill(Color(red: 0x58/255, green: 0x65/255, blue: 0xF2/255)))
+                            .shadow(color: .black.opacity(0.45), radius: 12, y: 6)
+                    }
+                    .accessibilityLabel("FilmFrei24 auf Discord")
+                }
+                .padding(.trailing, 16).padding(.bottom, 84)
+            }
         }
         .background(FF.bg.ignoresSafeArea())
         .fullScreenCover(item: $router.play) { PlayerView(req: $0) }
@@ -275,6 +289,8 @@ struct Root: View {
 
 #if os(iOS)
 /// Schwebende Pille unten: Start, Wünsche, Konto, Nachrichten, Suche (wie Website-Handy).
+let discordURL = "https://filmfrei24.com/discord"
+
 struct TabBar: View {
     @EnvironmentObject var store: Store
     @EnvironmentObject var router: Router
