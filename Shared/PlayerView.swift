@@ -756,6 +756,10 @@ final class PlayerModel: NSObject, ObservableObject {
     @Published var cue = ""
     @Published var loading = true
     @Published var error: String?
+    // 2026-10-31: „Wiedergabe nicht möglich“ obwohl der Titel da ist -> nur der neueste Ladeversuch zählt,
+    // Netzfehler werden wiederholt, das Video bekommt einen zweiten Anlauf
+    private var loadToken = UUID()
+    private var failRetries = 0
     @Published var showSkip = false
     @Published var skipLabel = "Intro überspringen"
     private var skipTo = 0.0
@@ -829,7 +833,18 @@ final class PlayerModel: NSObject, ObservableObject {
         loading = true; error = nil; showNext = false; showSkip = false; nextDismissed = false; cues = []; cue = ""
         stopCountdown(); visible = true; scrub = nil; pausedLong = false; focus = .play; touchedKey(false)
         sheet = .none; rated = false; rating = false; audioOpts = []; audioGroup = nil
-        var o = await API.getObj("/beta/api.php?q=play&type=\(type)&id=" + API.enc(id) + (type == "s" ? "&season=\(season)&ep=\(ep)" : ""))
+        let token = UUID(); loadToken = token; failRetries = 0
+        let path = "/beta/api.php?q=play&type=\(type)&id=" + API.enc(id) + (type == "s" ? "&season=\(season)&ep=\(ep)" : "")
+        var o: J = [:]; var netFail = false
+        for attempt in 0..<3 {
+            do { o = ((try await API.get(path)) as? J) ?? [:]; netFail = false; break }
+            catch {
+                netFail = true
+                if loadToken != token { return }
+                if attempt < 2 { try? await Task.sleep(nanoseconds: 800_000_000) }
+            }
+        }
+        if loadToken != token { return }   // inzwischen wurde etwas anderes gestartet
         #if os(iOS)
         // 2026-10-22: heruntergeladen -> lokale Datei; ohne Internet komplett aus den gespeicherten Daten
         let dk = Downloads.key(type: type, id: id, season: season, ep: ep)
@@ -845,7 +860,8 @@ final class PlayerModel: NSObject, ObservableObject {
         #endif
         guard let i = PlayInfo(o) else {
             loading = false
-            error = o.s("error").isEmpty ? "Dieser Titel ist noch nicht verfügbar." : o.s("error"); return
+            error = !o.s("error").isEmpty ? o.s("error")
+                : (netFail ? "Keine Verbindung zum Server. Bitte prüfe dein Internet und versuche es noch einmal." : "Dieser Titel ist noch nicht verfügbar."); return
         }
         info = i
         hasCc = !i.vtt.isEmpty; ccOn = Store.shared.subtitlesDefault
@@ -880,6 +896,14 @@ final class PlayerModel: NSObject, ObservableObject {
                 guard let self else { return }
                 if it.status == .readyToPlay { self.loading = false; await self.loadAudio(it) }
                 if it.status == .failed {
+                    // einmal automatisch neu versuchen (kurzer Netzaussetzer), erst dann Fehler zeigen
+                    if self.failRetries < 1 {
+                        self.failRetries += 1
+                        let at = self.pos
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        if self.error == nil { self.play(url: url, title: title, poster: poster, start: at) }
+                        return
+                    }
                     self.loading = false
                     self.error = "Das Video konnte nicht geladen werden. " + (it.error?.localizedDescription ?? "")
                 }
