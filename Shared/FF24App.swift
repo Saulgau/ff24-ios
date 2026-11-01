@@ -164,7 +164,14 @@ struct UpdateCheck: ViewModifier {
                 guard let u = URL(string: "https://tv.filmfrei24.com/app-version.json"),
                       let (d, _) = try? await URLSession.shared.data(from: u),
                       let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-                      let k = o["ios"] as? [String: Any],
+                      // Apple TV hat eigene IPA/Version ("tvos"), sonst meldet es iPhone-Versionen
+                      let k = o[{ () -> String in
+                          #if os(tvOS)
+                          return "tvos"
+                          #else
+                          return "ios"
+                          #endif
+                      }()] as? [String: Any],
                       let build = (k["build"] as? NSNumber)?.intValue else { return }
                 let mine = Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0") ?? 0
                 if build > mine {
@@ -287,9 +294,10 @@ struct Root: View {
     }
 }
 
+let discordURL = "https://filmfrei24.com/discord"
+
 #if os(iOS)
 /// Schwebende Pille unten: Start, Wünsche, Konto, Nachrichten, Suche (wie Website-Handy).
-let discordURL = "https://filmfrei24.com/discord"
 
 struct TabBar: View {
     @EnvironmentObject var store: Store
