@@ -7,7 +7,30 @@
 (function () {
   const RX = /^https?:\/\/(127\.0\.0\.1|localhost|cnl\.filecrypt\.cc):9666(\/|$)/i;
   function plog(m) { try { browser.runtime.sendMessage({ ff24log: m + ' [' + location.hostname + location.pathname + ']' }); } catch (e) {} }
-  function send(url, data) { try { browser.runtime.sendMessage({ ff24cnl: true, url: String(url), data }); } catch (e) {} }
+  // 2026-11-06: Safari auf iOS gibt der Erweiterung oft keine Rechte fuer direct82.filmfrei24.com (nur fuer die
+  // besuchte Seite) -> der Hintergrund-Abruf scheiterte still. Darum sendet das Inhaltsskript selbst (Server erlaubt
+  // CORS fuer filecrypt/hide.cx); nur wenn das scheitert, geht es ueber das Hintergrundskript.
+  const D = { server: 'https://direct82.filmfrei24.com/ff24-cnl', token: '0OtQrp2zQtTNRzSOJCjbHkDT7kiB_591Q-GY09OXNls' };
+  const gesendet = {};
+  function send(url, data) {
+    let path = '/flash/addcrypted2';
+    try { path = (new URL(url).pathname.replace(/\/+$/, '')) || path; } catch (e) {}
+    const p = new URLSearchParams(); (data || []).forEach(function (kv) { p.append(kv[0], kv[1]); });
+    if (!p.get('crypted') && !p.get('urls') && !p.get('jk')) return;
+    if (!p.get('source')) p.set('source', location.href);
+    const key = path + '|' + (p.get('crypted') || p.get('urls'));
+    if (gesendet[key] && Date.now() - gesendet[key] < 60000) return;
+    gesendet[key] = Date.now();
+    const weiter = function () { try { browser.runtime.sendMessage({ ff24cnl: true, url: String(url), data: data }); } catch (e) {} };
+    Promise.resolve(browser.storage && browser.storage.local ? browser.storage.local.get(['server', 'token']) : {}).catch(function () { return {}; }).then(function (c) {
+      const server = (c && c.server) || D.server, token = (c && c.token) || D.token;
+      return fetch(server + path, { method: 'POST', headers: { 'X-FF24-CNL': token, 'Content-Type': 'application/x-www-form-urlencoded' },
+                                    body: p.toString(), credentials: 'omit', cache: 'no-store' });
+    }).then(function (r) {
+      if (!r.ok) throw new Error('Server ' + r.status);
+      plog('OK ' + path + ' -> ' + r.status + ' (direkt)');
+    }).catch(function (e) { plog('Direkt fehlgeschlagen (' + e + '), versuche Hintergrund'); weiter(); });
+  }
   function formData(f) { const d = []; try { for (const el of f.elements) if (el.name && !el.disabled) d.push([String(el.name), String(el.value)]); } catch (e) {} return d; }
 
   document.addEventListener('submit', function (e) {
