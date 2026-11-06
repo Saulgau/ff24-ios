@@ -26,9 +26,9 @@ jobs:
           ids = sorted(set(re.findall(r'PRODUCT_BUNDLE_IDENTIFIER = "?([^";]+)"?;', s)))
           print('vorher:', ids)
           for i in ids:
-              if i != 'com.filmfrei24.cnl':
-                  s = s.replace(f'PRODUCT_BUNDLE_IDENTIFIER = {i};', 'PRODUCT_BUNDLE_IDENTIFIER = com.filmfrei24.cnl.extension;')
-                  s = s.replace(f'PRODUCT_BUNDLE_IDENTIFIER = "{i}";', 'PRODUCT_BUNDLE_IDENTIFIER = com.filmfrei24.cnl.extension;')
+              neu = 'com.filmfrei24.cnl.extension' if 'extension' in i.lower() else 'com.filmfrei24.cnl'
+              s = s.replace(f'PRODUCT_BUNDLE_IDENTIFIER = {i};', f'PRODUCT_BUNDLE_IDENTIFIER = {neu};')
+              s = s.replace(f'PRODUCT_BUNDLE_IDENTIFIER = "{i}";', f'PRODUCT_BUNDLE_IDENTIFIER = {neu};')
           open(p, 'w').write(s)
           print('nachher:', sorted(set(re.findall(r'PRODUCT_BUNDLE_IDENTIFIER = "?([^";]+)"?;', s))))
           PY
