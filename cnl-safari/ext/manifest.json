@@ -1,0 +1,40 @@
+{
+  "manifest_version": 2,
+  "name": "FF24 Click'n'Load",
+  "version": "1.0.6",
+  "description": "Schickt Click'n'Load-Links von filecrypt und hide.cx direkt an JDownloader auf dem FilmFrei24-Server.",
+  "permissions": [
+    "storage",
+    "https://direct82.filmfrei24.com/*"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ],
+    "persistent": false
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://filecrypt.cc/*",
+        "*://*.filecrypt.cc/*",
+        "*://filecrypt.co/*",
+        "*://*.filecrypt.co/*",
+        "*://hide.cx/*",
+        "*://*.hide.cx/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "options_ui": {
+    "page": "options.html"
+  },
+  "icons": {
+    "48": "icon48.png",
+    "96": "icon96.png"
+  }
+}

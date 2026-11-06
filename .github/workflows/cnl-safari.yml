@@ -1,0 +1,35 @@
+name: FF24 Click'n'Load Safari (iOS) bauen
+on:
+  workflow_dispatch:
+  push:
+    paths: ['cnl-safari/**', '.github/workflows/cnl-safari.yml']
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode wählen
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Safari-Erweiterung in iOS-App umwandeln
+        run: |
+          xcrun safari-web-extension-converter cnl-safari/ext --project-location build-cnl --app-name "FF24CNL" \
+            --bundle-identifier com.filmfrei24.cnl --ios-only --swift --no-open --no-prompt --copy-resources --force
+          find build-cnl -maxdepth 3 -name "*.xcodeproj"
+          xcodebuild -list -project build-cnl/FF24CNL/FF24CNL.xcodeproj
+      - name: iOS bauen
+        run: |
+          xcodebuild -project build-cnl/FF24CNL/FF24CNL.xcodeproj -scheme FF24CNL -sdk iphoneos -configuration Release \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee build-cnl.log | grep -E 'error:|BUILD' ; test ${PIPESTATUS[0]} -eq 0
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -1); echo "$APP"; ls "$APP/PlugIns" || true
+          mkdir -p out/Payload && cp -r "$APP" out/Payload/
+          (cd out && zip -qr FF24-ClicknLoad-Safari.ipa Payload && rm -rf Payload)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FF24-CNL-Safari
+          path: |
+            out/*.ipa
+            build-cnl.log
+          if-no-files-found: ignore
