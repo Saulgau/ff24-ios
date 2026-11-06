@@ -18,6 +18,20 @@ jobs:
             --bundle-identifier com.filmfrei24.cnl --ios-only --swift --no-open --no-prompt --copy-resources --force
           find build-cnl -maxdepth 3 -name "*.xcodeproj"
           xcodebuild -list -project build-cnl/FF24CNL/FF24CNL.xcodeproj
+          # Erweiterungs-ID muss mit der App-ID beginnen (sonst: "Embedded binary's bundle identifier is not prefixed")
+          python3 - <<'PY'
+          import re
+          p = 'build-cnl/FF24CNL/FF24CNL.xcodeproj/project.pbxproj'
+          s = open(p).read()
+          ids = sorted(set(re.findall(r'PRODUCT_BUNDLE_IDENTIFIER = "?([^";]+)"?;', s)))
+          print('vorher:', ids)
+          for i in ids:
+              if i != 'com.filmfrei24.cnl':
+                  s = s.replace(f'PRODUCT_BUNDLE_IDENTIFIER = {i};', 'PRODUCT_BUNDLE_IDENTIFIER = com.filmfrei24.cnl.extension;')
+                  s = s.replace(f'PRODUCT_BUNDLE_IDENTIFIER = "{i}";', 'PRODUCT_BUNDLE_IDENTIFIER = com.filmfrei24.cnl.extension;')
+          open(p, 'w').write(s)
+          print('nachher:', sorted(set(re.findall(r'PRODUCT_BUNDLE_IDENTIFIER = "?([^";]+)"?;', s))))
+          PY
       - name: iOS bauen
         run: |
           xcodebuild -project build-cnl/FF24CNL/FF24CNL.xcodeproj -scheme FF24CNL -sdk iphoneos -configuration Release \
