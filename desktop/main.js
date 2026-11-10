@@ -3,7 +3,7 @@
 // Update-Hinweis aus tv.filmfrei24.com/app-version.json ("desktop").
 const { app, BrowserWindow, shell, dialog, session, net, Menu, ipcMain } = require('electron');
 const path = require('path');
-const VERSION_BUILD = 3;                 // bei jeder neuen Version hochzählen (app-version.json desktop.build)
+const VERSION_BUILD = 4;                 // bei jeder neuen Version hochzählen (app-version.json desktop.build)
 const HOME = 'https://filmfrei24.com/';
 const DL = require('./downloads');   // 2026-10-22: Offline-Downloads
 let win = null;
@@ -50,6 +50,21 @@ function createWindow() {
       e.preventDefault(); shell.openExternal('https://filmfrei24.com/api/app.php?action=google_start&desktop=1'); return;
     }
     if (needsBrowser(url)) { e.preventDefault(); shell.openExternal(url); }
+  });
+  // 2026-11-10 (Ticket „man kann keine E-Mail und Passwort reinkopieren“): Electron hat von sich aus kein
+  // Rechtsklick-Menü -> eigenes mit Ausschneiden/Kopieren/Einfügen/Alles auswählen (Strg+C/V gehen ohnehin).
+  win.webContents.on('context-menu', (_e, p) => {
+    const t = [];
+    if (p.isEditable) {
+      t.push({ label: 'Ausschneiden', role: 'cut', enabled: p.editFlags.canCut },
+             { label: 'Kopieren', role: 'copy', enabled: p.editFlags.canCopy },
+             { label: 'Einfügen', role: 'paste', enabled: p.editFlags.canPaste },
+             { type: 'separator' }, { label: 'Alles auswählen', role: 'selectAll' });
+    } else if (p.selectionText && p.selectionText.trim()) {
+      t.push({ label: 'Kopieren', role: 'copy' });
+    }
+    if (p.linkURL) t.push({ label: 'Link kopieren', click: () => require('electron').clipboard.writeText(p.linkURL) });
+    if (t.length) Menu.buildFromTemplate(t).popup({ window: win });
   });
   // F11 = Vollbild, Esc verlässt es
   win.webContents.on('before-input-event', (e, i) => {
