@@ -1,13 +1,13 @@
 {
   "name": "filmfrei24",
   "productName": "FilmFrei24",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "FilmFrei24 für Windows und Linux",
   "main": "main.js",
   "author": "FilmFrei24",
   "license": "UNLICENSED",
   "scripts": { "dist:win": "electron-builder --win nsis --publish never", "dist:linux": "electron-builder --linux AppImage --publish never" },
-  "devDependencies": { "electron": "33.2.1", "electron-builder": "25.1.8" },
+  "devDependencies": { "electron": "45.3.4", "electron-builder": "26.18.0" },
   "build": {
     "appId": "com.filmfrei24.desktop",
     "productName": "FilmFrei24",

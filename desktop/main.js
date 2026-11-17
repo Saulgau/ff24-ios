@@ -3,7 +3,7 @@
 // Update-Hinweis aus tv.filmfrei24.com/app-version.json ("desktop").
 const { app, BrowserWindow, shell, dialog, session, net, Menu, ipcMain } = require('electron');
 const path = require('path');
-const VERSION_BUILD = 4;                 // bei jeder neuen Version hochzählen (app-version.json desktop.build)
+const VERSION_BUILD = 5;                 // bei jeder neuen Version hochzählen (app-version.json desktop.build)
 const HOME = 'https://filmfrei24.com/';
 const DL = require('./downloads');   // 2026-10-22: Offline-Downloads
 let win = null;
@@ -92,6 +92,40 @@ async function handleDeepLink(u) {
   } catch (e) { /* ignorieren */ }
 }
 
+// 2026-11-17 (Ticket „Update-Funktion in der App haut nicht hin“): vorher öffnete „Update“ nur den Browser und man
+// musste das Setup selbst finden/ausführen (lief bei geöffneter App ins Leere). Jetzt: Setup in der App laden,
+// starten (oneClick-NSIS installiert und startet die App neu) und diese App beenden, damit nichts gesperrt ist.
+async function selbstUpdate(url) {
+  if (process.platform !== 'win32') { shell.openExternal(url); return; }
+  const fs = require('fs');
+  const ziel = path.join(app.getPath('temp'), 'FilmFrei24-Setup-' + Date.now() + '.exe');
+  try {
+    if (win) win.setProgressBar(2);   // „unbestimmt“ in der Taskleiste
+    const r = await net.fetch(url, { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const total = Number(r.headers.get('content-length')) || 0;
+    const out = fs.createWriteStream(ziel); let done = 0;
+    const reader = r.body.getReader();
+    for (;;) {
+      const { done: fertig, value } = await reader.read();
+      if (fertig) break;
+      done += value.length; out.write(Buffer.from(value));
+      if (win && total) win.setProgressBar(done / total);
+    }
+    await new Promise((ok, bad) => out.end(err => err ? bad(err) : ok()));
+    if (total && done !== total) throw new Error('Download unvollständig');
+    if (win) win.setProgressBar(-1);
+    const err = await shell.openPath(ziel);
+    if (err) throw new Error(err);
+    setTimeout(() => app.quit(), 1500);
+  } catch (e) {
+    if (win) win.setProgressBar(-1);
+    const r2 = await dialog.showMessageBox(win, { type: 'warning', buttons: ['Im Browser laden', 'Abbrechen'], defaultId: 0, cancelId: 1,
+      message: 'Das Update konnte nicht automatisch geladen werden.', detail: String(e && e.message || e) });
+    if (r2.response === 0) shell.openExternal(url);
+  }
+}
+
 async function checkUpdate() {
   try {
     const r = await net.fetch('https://tv.filmfrei24.com/app-version.json', { cache: 'no-store' });
@@ -100,9 +134,9 @@ async function checkUpdate() {
     const res = await dialog.showMessageBox(win, {
       type: 'info', buttons: ['Update', 'Weiter nutzen'], defaultId: 0, cancelId: 1, title: 'Neue Version verfügbar',
       message: 'FilmFrei24 ' + (d.name || '') + ' ist da.',
-      detail: '„Update“ lädt das neue Setup herunter – einfach ausführen, deine Anmeldung bleibt erhalten.',
+      detail: '„Update“ lädt die neue Version herunter und installiert sie – deine Anmeldung bleibt erhalten.',
     });
-    if (res.response === 0) shell.openExternal(d.url || 'https://tv.filmfrei24.com/exe');
+    if (res.response === 0) await selbstUpdate(d.url || 'https://tv.filmfrei24.com/exe');
   } catch (e) { /* offline */ }
 }
 
