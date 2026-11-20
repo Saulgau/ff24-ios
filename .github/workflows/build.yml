@@ -2,7 +2,7 @@ name: IPA bauen (unsigniert)
 on:
   workflow_dispatch:
   push:
-    paths-ignore: ['cnl-safari/**', '.github/workflows/cnl-safari.yml']
+    paths-ignore: ['cnl-safari/**', '.github/workflows/cnl-safari.yml', 'dateien/**', '.github/workflows/dateien.yml']
 jobs:
   build:
     runs-on: macos-15

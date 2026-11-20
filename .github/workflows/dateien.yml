@@ -1,0 +1,29 @@
+name: FF24 Dateien (interne App) bauen
+on:
+  workflow_dispatch:
+  push:
+    paths: ['dateien/**', '.github/workflows/dateien.yml']
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Bauen
+        working-directory: dateien
+        run: |
+          brew install xcodegen && xcodegen generate
+          xcodebuild -project FF24Dateien.xcodeproj -scheme FF24Dateien -sdk iphoneos -configuration Release \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee build.log | grep -E 'error:|BUILD' ; test ${PIPESTATUS[0]} -eq 0
+          mkdir -p out/Payload && cp -r build/Build/Products/Release-iphoneos/FF24Dateien.app out/Payload/
+          (cd out && zip -qr FF24-Dateien.ipa Payload && rm -rf Payload)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FF24-Dateien-IPA
+          path: |
+            dateien/out/*.ipa
+            dateien/build.log
+          if-no-files-found: ignore

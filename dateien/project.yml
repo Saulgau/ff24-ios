@@ -1,0 +1,42 @@
+# FF24 Dateien (2026-11-20): interne App für den Betreiber – Storage/Seiten/MP4/Server-Downloads verwalten.
+name: FF24Dateien
+options:
+  bundleIdPrefix: com.filmfrei24
+  deploymentTarget:
+    iOS: "16.0"
+  developmentLanguage: de
+settings:
+  base:
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+targets:
+  FF24Dateien:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Assets.xcassets
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: FF24 Dateien
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDevelopmentRegion: de
+        UILaunchScreen: {}
+        UIUserInterfaceStyle: Dark
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        NSPhotoLibraryUsageDescription: Zum Hochladen von Fotos und Videos auf den FilmFrei24-Server.
+        NSCameraUsageDescription: Zum Hochladen von Aufnahmen auf den FilmFrei24-Server.
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.filmfrei24.dateien
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
